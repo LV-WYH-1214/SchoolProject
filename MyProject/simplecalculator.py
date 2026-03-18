@@ -82,7 +82,7 @@ def format_result(value: float) -> str:
 
 def on_number_clicked(button: Gtk.Button, state: CalculatorState) -> None:
     """
-    数字按钮回调：
+    数字/小数点按钮回调：
     - 如果是新数字输入阶段，直接覆盖 current_number
     - 否则将数字追加到 current_number 末尾
     """
@@ -93,11 +93,20 @@ def on_number_clicked(button: Gtk.Button, state: CalculatorState) -> None:
         state.current_number = ""
         state.new_number = True
 
-    if state.new_number:
-        state.current_number = text
-        state.new_number = False
+    if text == ".":
+        if state.new_number:
+            # 新数字以小数点开头时，统一显示为 0.
+            state.current_number = "0."
+            state.new_number = False
+        elif "." not in state.current_number:
+            # 同一个数字中只允许一个小数点
+            state.current_number += "."
     else:
-        state.current_number += text
+        if state.new_number:
+            state.current_number = text
+            state.new_number = False
+        else:
+            state.current_number += text
 
     update_display(state)
 
@@ -207,17 +216,21 @@ def build_ui() -> Gtk.Window:
     clear_button = create_button("C", on_clear_clicked, state)
     grid.attach(clear_button, 0, 0, 4, 1)
 
-    # 数字按钮（1-9 按计算器常规布局，0 占两列）
+    # 数字按钮（1-9 按计算器常规布局）
     for i in range(10):
         button = create_button(str(i), on_number_clicked, state)
         if i == 0:
-            # 0 放在底部第一、二列
-            grid.attach(button, 0, 4, 2, 1)
+            # 0 放在底部第一列
+            grid.attach(button, 0, 4, 1, 1)
         else:
             # 与原 C 代码相同的行列映射规则
             row = 3 - (i - 1) // 3
             col = (i - 1) % 3
             grid.attach(button, col, row, 1, 1)
+
+    # 小数点按钮
+    dot_button = create_button(".", on_number_clicked, state)
+    grid.attach(dot_button, 1, 4, 1, 1)
 
     # 运算符按钮（右侧一列）
     add_button = create_button("+", on_operator_clicked, state)
