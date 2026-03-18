@@ -1,0 +1,46 @@
+{
+	"hooks": {
+		"SessionStart": [
+			{
+				"type": "command",
+				"command": ".github\\hooks\\run_hook.bat -Event SessionStart"
+			}
+		],
+		"UserPromptSubmit": [
+			{
+				"type": "command",
+				"command": ".github\\hooks\\run_hook.bat -Event UserPromptSubmit"
+			}
+		],
+		"AssistantResponse": [
+			{
+				"type": "command",
+				"command": ".github\\hooks\\run_hook.bat -Event AssistantResponse"
+			}
+		],
+		"AssistantResponseCompleted": [
+			{
+				"type": "command",
+				"command": ".github\\hooks\\run_hook.bat -Event AssistantResponseCompleted"
+			}
+		],
+		"AssistantResponseFinish": [
+			{
+				"type": "command",
+				"command": ".github\\hooks\\run_hook.bat -Event AssistantResponseFinish"
+			}
+		],
+		"ResponseCompleted": [
+			{
+				"type": "command",
+				"command": ".github\\hooks\\run_hook.bat -Event ResponseCompleted"
+			}
+		],
+		"SessionEnd": [
+			{
+				"type": "command",
+				"command": ".github\\hooks\\run_hook.bat -Event SessionEnd"
+			}
+		]
+	}
+}
