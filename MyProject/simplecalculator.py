@@ -102,6 +102,26 @@ def on_number_clicked(button: Gtk.Button, state: CalculatorState) -> None:
     update_display(state)
 
 
+def on_decimal_clicked(_button: Gtk.Button, state: CalculatorState) -> None:
+    """
+    小数点按钮回调：
+    - 新数字阶段输入小数点时，自动变为 "0."
+    - 同一数字中禁止重复输入 "."
+    """
+    # 如果当前显示 Error，下一次输入从新数字开始
+    if state.current_number == "Error":
+        state.current_number = ""
+        state.new_number = True
+
+    if state.new_number or not state.current_number:
+        state.current_number = "0."
+        state.new_number = False
+    elif "." not in state.current_number:
+        state.current_number += "."
+
+    update_display(state)
+
+
 def on_operator_clicked(button: Gtk.Button, state: CalculatorState) -> None:
     """
     运算符按钮回调（+ - * /):
@@ -207,17 +227,21 @@ def build_ui() -> Gtk.Window:
     clear_button = create_button("C", on_clear_clicked, state)
     grid.attach(clear_button, 0, 0, 4, 1)
 
-    # 数字按钮（1-9 按计算器常规布局，0 占两列）
+    # 数字按钮（1-9 按计算器常规布局，0 放在底部左侧）
     for i in range(10):
         button = create_button(str(i), on_number_clicked, state)
         if i == 0:
-            # 0 放在底部第一、二列
-            grid.attach(button, 0, 4, 2, 1)
+            # 0 放在底部第一列
+            grid.attach(button, 0, 4, 1, 1)
         else:
             # 与原 C 代码相同的行列映射规则
             row = 3 - (i - 1) // 3
             col = (i - 1) % 3
             grid.attach(button, col, row, 1, 1)
+
+    # 小数点按钮
+    dot_button = create_button(".", on_decimal_clicked, state)
+    grid.attach(dot_button, 1, 4, 1, 1)
 
     # 运算符按钮（右侧一列）
     add_button = create_button("+", on_operator_clicked, state)
