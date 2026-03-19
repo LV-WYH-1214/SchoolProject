@@ -10,6 +10,12 @@ from simpleeval import SimpleEval  # type: ignore[import-not-found]
 
 BACKSPACE_SYMBOL = "<="
 MAX_EXPRESSION_LENGTH = 120
+ERROR_DIV_ZERO = "Div0"
+ERROR_SYNTAX = "语法错误"
+ERROR_DOMAIN = "域错误"
+ERROR_OVERFLOW = "溢出"
+ERROR_GENERIC = "错误"
+ERROR_MESSAGES = {ERROR_DIV_ZERO, ERROR_SYNTAX, ERROR_DOMAIN, ERROR_OVERFLOW, ERROR_GENERIC}
 
 
 class CalculatorState:
@@ -20,6 +26,7 @@ class CalculatorState:
         self.preview: str = ""
         self.last_result: str = ""
         self.scientific_mode: bool = False
+        self.use_degrees: bool = True
 
     def clear(self) -> None:
         self.expression = ""
@@ -42,11 +49,23 @@ class CalculatorApp:
         self.refresh_displays()
 
     def _create_evaluator(self) -> SimpleEval:
+        def to_radians(value: float) -> float:
+            return math.radians(value) if self.state.use_degrees else value
+
+        def sin_fn(value: float) -> float:
+            return math.sin(to_radians(value))
+
+        def cos_fn(value: float) -> float:
+            return math.cos(to_radians(value))
+
+        def tan_fn(value: float) -> float:
+            return math.tan(to_radians(value))
+
         evaluator = SimpleEval()
         evaluator.functions = {
-            "sin": math.sin,
-            "cos": math.cos,
-            "tan": math.tan,
+            "sin": sin_fn,
+            "cos": cos_fn,
+            "tan": tan_fn,
             "sqrt": math.sqrt,
             "log": math.log10,
             "ln": math.log,
@@ -131,6 +150,8 @@ class CalculatorApp:
 
         sci_button = self.create_button("Sci", self.on_toggle_science, "toggle-button")
         top_bar.pack_start(sci_button, False, False, 0)
+        self.angle_button = self.create_button("Deg", self.on_toggle_angle_mode, "toggle-button")
+        top_bar.pack_start(self.angle_button, False, False, 6)
 
         display_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         root.pack_start(display_box, False, False, 0)
@@ -161,7 +182,8 @@ class CalculatorApp:
 
         sci_layout = [
             ["sin", "cos", "tan", "√"],
-            ["(", ")", "π", "x^y"],
+            ["log", "ln", "abs", "x^y"],
+            ["(", ")", "π", "e"],
         ]
 
         for row, row_values in enumerate(sci_layout):
@@ -231,7 +253,11 @@ class CalculatorApp:
             "cos": "cos(",
             "tan": "tan(",
             "√": "sqrt(",
+            "log": "log(",
+            "ln": "ln(",
+            "abs": "abs(",
             "π": "pi",
+            "e": "e",
             "x^y": "**",
         }
         self.append_token(mapping.get(label, label))
@@ -239,6 +265,12 @@ class CalculatorApp:
     def on_toggle_science(self, _button: Gtk.Button) -> None:
         self.state.scientific_mode = not self.state.scientific_mode
         self.revealer.set_reveal_child(self.state.scientific_mode)
+
+    def on_toggle_angle_mode(self, _button: Gtk.Button) -> None:
+        self.state.use_degrees = not self.state.use_degrees
+        self.angle_button.set_label("Deg" if self.state.use_degrees else "Rad")
+        self.recompute_preview()
+        self.refresh_displays(show_zero_when_empty=False)
 
     def clear_all(self) -> None:
         self.state.clear()
@@ -298,7 +330,7 @@ class CalculatorApp:
             return False
 
         prev = expression[-1]
-        token_starts_group = token.startswith(("sin", "cos", "tan", "sqrt", "(", "pi", "e"))
+        token_starts_group = token.startswith(("sin", "cos", "tan", "sqrt", "log", "ln", "abs", "(", "pi", "e"))
         prev_can_multiply = prev.isdigit() or prev in {")", ".", "i", "e"}
 
         return prev_can_multiply and token_starts_group
@@ -382,16 +414,36 @@ class CalculatorApp:
             self.state.preview = ""
             return
 
+        if self.is_expression_incomplete(expression):
+            self.state.preview = ""
+            return
+
         try:
             value = self.evaluator.eval(expression)
             self.state.preview = self.format_result(value)
         except ZeroDivisionError:
-            self.state.preview = "错误"
+            self.state.preview = ERROR_DIV_ZERO
+        except OverflowError:
+            self.state.preview = ERROR_OVERFLOW
+        except ValueError:
+            self.state.preview = ERROR_DOMAIN
+        except (SyntaxError, TypeError):
+            self.state.preview = ERROR_SYNTAX
         except Exception:
-            self.state.preview = ""
+            self.state.preview = ERROR_GENERIC
+
+    @staticmethod
+    def is_expression_incomplete(expression: str) -> bool:
+        if not expression:
+            return True
+
+        if expression.endswith(("+", "-", "*", "/", "(")):
+            return True
+
+        return expression.count("(") > expression.count(")")
 
     def commit_result(self) -> None:
-        if not self.state.preview or self.state.preview == "错误":
+        if not self.state.preview or self.state.preview in ERROR_MESSAGES:
             return
 
         self.state.last_result = self.state.preview
