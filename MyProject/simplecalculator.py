@@ -514,8 +514,13 @@ class CalculatorApp:
         self.revealer.set_reveal_child(self.state.scientific_mode)
 
     def on_toggle_angle_mode(self, _button: Gtk.Button) -> None:
+        # 切换单位制状态
         self.state.use_degrees = not self.state.use_degrees
+        # 关键：重新创建 evaluator，确保三角函数使用最新的单位制状态
+        self.evaluator = self._create_evaluator()
+        # 更新UI按钮标签
         self.angle_button.set_label("Deg" if self.state.use_degrees else "Rad")
+        # 重新计算预览和显示
         self.recompute_preview()
         self.refresh_displays(show_zero_when_empty=False)
 

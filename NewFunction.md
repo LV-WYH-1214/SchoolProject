@@ -40,6 +40,25 @@
 ## 最近变更记录
 
 ### 2026-03-19
+#### Bug 修复：角度制/弧度制计算不同步
+**问题描述**：
+- UI切换到 `Rad` 模式时，`sin(8)` 仍返回角度制结果 (`0.139173101`)，而非弧度制结果 (`0.989358246`)
+- 根本原因：`on_toggle_angle_mode()` 方法中修改了 `use_degrees` 状态，但未重新初始化 evaluator，导致三角函数闭包捕获的状态信息过时
+
+**修复方案**（方案1 - 已应用）：
+```python
+def on_toggle_angle_mode(self, _button: Gtk.Button) -> None:
+    self.state.use_degrees = not self.state.use_degrees
+    self.evaluator = self._create_evaluator()  # ← 关键修复：重建 evaluator
+    self.angle_button.set_label("Deg" if self.state.use_degrees else "Rad")
+    self.recompute_preview()
+    self.refresh_displays(show_zero_when_empty=False)
+```
+
+**修复验证**：
+- ✅ `sin(8)` 在 Deg 模式：`0.139173101`（角度制正确值）
+- ✅ `sin(8)` 在 Rad 模式：`0.989358246`（弧度制正确值）
+- ✅ 复杂表达式：`123322*sin(8+2)` 等在两种模式下都能正确计算
 
 #### 变更内容
 
