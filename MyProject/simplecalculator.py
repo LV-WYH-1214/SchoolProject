@@ -2,12 +2,14 @@ import gi  # type: ignore[import-not-found]
 
 gi.require_version("Gtk", "3.0")
 import math
+import re
 
 from gi.repository import Gdk, Gtk  # type: ignore[attr-defined]
 from simpleeval import SimpleEval  # type: ignore[import-not-found]
 
 
 BACKSPACE_SYMBOL = "<="
+MAX_EXPRESSION_LENGTH = 120
 
 
 class CalculatorState:
@@ -173,11 +175,11 @@ class CalculatorApp:
         root.pack_start(standard_grid, True, True, 0)
 
         layout = [
-            ["C", BACKSPACE_SYMBOL, "/", "*"],
-            ["7", "8", "9", "-"],
-            ["4", "5", "6", "+"],
-            ["1", "2", "3", "="],
-            ["0", ".", "", ""],
+            ["C", BACKSPACE_SYMBOL, "%", "/"],
+            ["7", "8", "9", "*"],
+            ["4", "5", "6", "-"],
+            ["1", "2", "3", "+"],
+            ["+/-", "0", ".", "="],
         ]
 
         for row, row_values in enumerate(layout):
@@ -187,12 +189,6 @@ class CalculatorApp:
 
                 style_class = self.resolve_button_style(label)
                 button = self.create_button(label, self.on_standard_input, style_class)
-
-                if label == "0":
-                    standard_grid.attach(button, col, row, 2, 1)
-                    continue
-                if row == 4 and col == 1:
-                    col = 2
 
                 standard_grid.attach(button, col, row, 1, 1)
 
@@ -219,6 +215,10 @@ class CalculatorApp:
             self.clear_all()
         elif label == BACKSPACE_SYMBOL:
             self.backspace()
+        elif label == "%":
+            self.apply_percent_last_number()
+        elif label == "+/-":
+            self.toggle_sign_last_number()
         elif label == "=":
             self.commit_result()
         else:
@@ -261,7 +261,13 @@ class CalculatorApp:
         if token == "^":
             token = "**"
 
+        if not self.can_append_token(token):
+            return
+
         if token == "." and not self.can_append_decimal():
+            return
+
+        if token == ")" and not self.can_append_right_parenthesis():
             return
 
         if self.should_insert_multiply(token):
@@ -296,6 +302,67 @@ class CalculatorApp:
         prev_can_multiply = prev.isdigit() or prev in {")", ".", "i", "e"}
 
         return prev_can_multiply and token_starts_group
+
+    def can_append_token(self, token: str) -> bool:
+        if token in {"+", "-", "*", "/", ")"}:
+            return True
+        return len(self.state.expression) + len(token) <= MAX_EXPRESSION_LENGTH
+
+    def can_append_right_parenthesis(self) -> bool:
+        expression = self.state.expression
+        if not expression:
+            return False
+
+        opens = expression.count("(")
+        closes = expression.count(")")
+        if opens <= closes:
+            return False
+
+        return expression[-1] not in {"+", "-", "*", "/", "("}
+
+    def find_last_number_span(self) -> tuple[int, int] | None:
+        expression = self.state.expression
+        match = re.search(r"-?\d+(?:\.\d+)?$", expression)
+        if match:
+            return match.start(), match.end()
+
+        return None
+
+    def apply_percent_last_number(self) -> None:
+        span = self.find_last_number_span()
+        if not span:
+            return
+
+        start, end = span
+        value = float(self.state.expression[start:end])
+        replacement = self.format_result(value / 100)
+        self.state.expression = f"{self.state.expression[:start]}{replacement}{self.state.expression[end:]}"
+        self.recompute_preview()
+        self.refresh_displays(show_zero_when_empty=False)
+
+    def toggle_sign_last_number(self) -> None:
+        if not self.state.expression:
+            self.state.expression = "-"
+            self.refresh_displays(show_zero_when_empty=False)
+            return
+
+        span = self.find_last_number_span()
+        if span:
+            start, end = span
+            token = self.state.expression[start:end]
+            if token.startswith("-"):
+                replacement = token[1:]
+            else:
+                replacement = f"-{token}"
+            self.state.expression = f"{self.state.expression[:start]}{replacement}{self.state.expression[end:]}"
+            self.recompute_preview()
+            self.refresh_displays(show_zero_when_empty=False)
+            return
+
+        if self.state.expression.endswith(("+", "-", "*", "/", "(")):
+            if len(self.state.expression) < MAX_EXPRESSION_LENGTH:
+                self.state.expression += "-"
+                self.refresh_displays(show_zero_when_empty=False)
 
     def can_append_decimal(self) -> bool:
         expression = self.state.expression
@@ -376,7 +443,10 @@ class CalculatorApp:
             self.append_token(keypad_map[name])
             return True
 
-        if char in "0123456789.+-*/()":
+        if char in "0123456789.+-*/()%":
+            if char == "%":
+                self.apply_percent_last_number()
+                return True
             self.append_token(char)
             return True
 
