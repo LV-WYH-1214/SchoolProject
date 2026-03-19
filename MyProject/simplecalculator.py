@@ -11,6 +11,10 @@ from simpleeval import SimpleEval  # type: ignore[import-not-found]
 BACKSPACE_SYMBOL = "<="
 MAX_EXPRESSION_LENGTH = 120
 HISTORY_LIMIT = 12
+DEFAULT_WINDOW_WIDTH = 640
+DEFAULT_WINDOW_HEIGHT = 1080
+MIN_WINDOW_WIDTH = 360
+MIN_WINDOW_HEIGHT = 640
 DEFAULT_BUTTON_MIN_HEIGHT = 52
 LARGE_BUTTON_MIN_HEIGHT = 64
 RESIZE_DEBOUNCE_MS = 120
@@ -33,10 +37,10 @@ class CalculatorState:
         self.preview: str = ""
         self.last_result: str = ""
         self.history: list[tuple[str, str]] = []
-        self.scientific_mode: bool = False
+        self.scientific_mode: bool = True
         self.history_visible: bool = False
         self.use_degrees: bool = True
-        self.high_contrast: bool = False
+        self.dark_mode: bool = True
         self.font_scale: int = 0
         self.button_min_height: int = DEFAULT_BUTTON_MIN_HEIGHT
 
@@ -55,8 +59,8 @@ class CalculatorApp:
         self._css_provider = Gtk.CssProvider()
 
         self.window = Gtk.Window(title="现代计算器")
-        self.window.set_default_size(420, 640)
-        self.window.set_size_request(320, 500)
+        self.window.set_default_size(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+        self.window.set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.window.set_resizable(True)
         self.window.connect("destroy", Gtk.main_quit)
         self.window.connect("key-press-event", self.on_key_press)
@@ -158,28 +162,28 @@ class CalculatorApp:
         shadow = profile["shadow"]
         button_min_height = max(profile["topbar_min"], self.state.button_min_height)
 
-        if self.state.high_contrast:
-            base_bg = "#1a1a1c"
-            number_bg = "#2a2a2d"
-            operator_bg = "#3b3b3f"
-            function_bg = "#255078"
-            accent_bg = "#0a84ff"
-            text_primary = "#f2f2f4"
-            text_secondary = "#c7c7cb"
-            hover_shift = "#45454a"
-        else:
-            base_bg = "#1c1c1e"
-            number_bg = "#2c2c2e"
-            operator_bg = "#3a3a3c"
-            function_bg = "#48484a"
-            accent_bg = "#ff9f0a"
-            text_primary = "#f4f4f5"
-            text_secondary = "#a9a9ae"
-            hover_shift = "#444448"
-
         css = f"""
-        window {{
-            background: {base_bg};
+        window,
+        grid.app-root {{
+            background: #f2f2f2;
+        }}
+
+        .dark-mode {{
+            transition: all 200ms ease;
+        }}
+
+        .light-mode {{
+            transition: all 200ms ease;
+        }}
+
+        window.dark-mode,
+        grid.app-root.dark-mode {{
+            background: #1e1e1e;
+        }}
+
+        window.light-mode,
+        grid.app-root.light-mode {{
+            background: #f2f2f2;
         }}
 
         button {{
@@ -192,7 +196,7 @@ class CalculatorApp:
             padding: 12px 0;
             font-size: {button_size}px;
             font-weight: 400;
-            color: {text_primary};
+            transition: all 180ms ease;
         }}
 
         button:hover {{
@@ -207,7 +211,6 @@ class CalculatorApp:
             font-family: "Segoe UI", "Helvetica Neue", "Roboto", sans-serif;
             font-size: {main_size}px;
             font-weight: 600;
-            color: {text_primary};
             padding: 10px 2px 4px 2px;
         }}
 
@@ -215,83 +218,143 @@ class CalculatorApp:
             font-family: "Segoe UI", "Helvetica Neue", "Roboto", sans-serif;
             font-size: {preview_size}px;
             font-weight: 400;
-            color: {text_secondary};
             padding: 0 2px 8px 2px;
         }}
 
-        .number-button {{
-            background: {number_bg};
-            color: {text_primary};
+        .dark-mode .display-main {{
+            color: #f2f2f4;
         }}
 
-        .number-button:hover {{
-            background: {hover_shift};
+        .dark-mode .display-preview {{
+            color: #c7c7cb;
         }}
 
-        .number-button:active {{
-            background: #252528;
+        .light-mode .display-main {{
+            color: #161618;
         }}
 
-        .operator-button {{
-            background: {operator_bg};
-            color: {text_primary};
+        .light-mode .display-preview {{
+            color: #5f6368;
         }}
 
-        .operator-button:hover {{
-            background: #4a4a4d;
+        .btn-number {{
+            background: #ffffff;
+            color: #000000;
         }}
 
-        .operator-button:active {{
-            background: #343438;
+        .btn-number:hover {{
+            background: #f6f7f8;
         }}
 
-        .function-button {{
-            background: {function_bg};
-            color: {text_primary};
+        .btn-number:active {{
+            background: #eceef0;
         }}
 
-        .function-button:hover {{
-            background: #57575a;
+        .btn-operator {{
+            background: #ffffff;
+            color: #0a84ff;
         }}
 
-        .function-button:active {{
-            background: #404044;
+        .btn-operator:hover {{
+            background: #f2f6ff;
         }}
 
-        .equals-button {{
-            background: {accent_bg};
-            color: #1d1d1f;
+        .btn-operator:active {{
+            background: #e6efff;
+        }}
+
+        .btn-equal {{
+            background: #0a84ff;
+            color: #ffffff;
             font-weight: 600;
         }}
 
-        .equals-button:hover {{
-            background: #ffb340;
+        .btn-equal:hover {{
+            background: #2f9aff;
         }}
 
-        .equals-button:active {{
-            background: #e08500;
+        .btn-equal:active {{
+            background: #006adc;
         }}
 
-        .toggle-button {{
-            background: {function_bg};
-            color: {text_primary};
+        .dark-mode .btn-number {{
+            background: #2b2b2b;
+            color: #ffffff;
+        }}
+
+        .dark-mode .btn-number:hover {{
+            background: #373737;
+        }}
+
+        .dark-mode .btn-number:active {{
+            background: #232323;
+        }}
+
+        .dark-mode .btn-operator {{
+            background: #2b2b2b;
+            color: #0a84ff;
+        }}
+
+        .dark-mode .btn-operator:hover {{
+            background: #373737;
+        }}
+
+        .dark-mode .btn-operator:active {{
+            background: #232323;
+        }}
+
+        .dark-mode .btn-equal {{
+            background: #0a84ff;
+            color: #ffffff;
+        }}
+
+        .dark-mode .btn-equal:hover {{
+            background: #2f9aff;
+        }}
+
+        .dark-mode .btn-equal:active {{
+            background: #006adc;
+        }}
+
+        .btn-func,
+        .btn-theme {{
+            background: #eceef0;
+            color: #2196f3;
             min-height: {profile["topbar_min"]}px;
             min-width: 72px;
             font-size: {toggle_size}px;
             font-weight: 500;
         }}
 
-        .toggle-button:hover {{
-            background: #59595d;
+        .btn-func:hover,
+        .btn-theme:hover {{
+            background: #dfe3e8;
         }}
 
-        .toggle-button:active {{
-            background: #444449;
+        .btn-func:active,
+        .btn-theme:active {{
+            background: #d2d7dd;
+        }}
+
+        .dark-mode .btn-func,
+        .dark-mode .btn-theme {{
+            background: #3a3a3c;
+            color: #ffffff;
+        }}
+
+        .dark-mode .btn-func:hover,
+        .dark-mode .btn-theme:hover {{
+            background: #4a4a4d;
+        }}
+
+        .dark-mode .btn-func:active,
+        .dark-mode .btn-theme:active {{
+            background: #323235;
         }}
 
         .history-button {{
-            background: #252528;
-            color: {text_primary};
+            background: #ffffff;
+            color: #222325;
             border: none;
             background-image: none;
             outline: none;
@@ -300,16 +363,46 @@ class CalculatorApp:
         }}
 
         .history-button:hover {{
-            background: #303034;
+            background: #f1f3f5;
         }}
 
         .history-button:active {{
+            background: #e6e9ed;
+        }}
+
+        .dark-mode .history-button {{
+            background: #252528;
+            color: #f2f2f4;
+        }}
+
+        .dark-mode .history-button:hover {{
+            background: #303034;
+        }}
+
+        .dark-mode .history-button:active {{
             background: #1f1f23;
         }}
         """
 
         self._css_provider.load_from_data(css.encode("utf-8"))
+        self.apply_theme_mode()
         self._apply_layout_density(profile)
+
+    def apply_theme_mode(self) -> None:
+        if not hasattr(self, "root_grid"):
+            return
+
+        window_ctx = self.window.get_style_context()
+        root_ctx = self.root_grid.get_style_context()
+
+        window_ctx.remove_class("dark-mode")
+        window_ctx.remove_class("light-mode")
+        root_ctx.remove_class("dark-mode")
+        root_ctx.remove_class("light-mode")
+
+        mode_class = "dark-mode" if self.state.dark_mode else "light-mode"
+        window_ctx.add_class(mode_class)
+        root_ctx.add_class(mode_class)
 
     def _apply_layout_density(self, profile: dict[str, int]) -> None:
         if not hasattr(self, "root_grid"):
@@ -344,6 +437,7 @@ class CalculatorApp:
         self.root_grid = Gtk.Grid()
         self.root_grid.set_hexpand(True)
         self.root_grid.set_vexpand(True)
+        self.root_grid.get_style_context().add_class("app-root")
         window.add(self.root_grid)
 
         self.top_grid = Gtk.Grid()
@@ -355,20 +449,21 @@ class CalculatorApp:
             ("Sci", self.on_toggle_science),
             ("Deg", self.on_toggle_angle_mode),
             ("Hist", self.on_toggle_history),
-            ("HC", self.on_toggle_high_contrast),
+            ("HC", self.on_hc_button_clicked),
             ("A-", self.on_decrease_font),
             ("A+", self.on_increase_font),
             ("Touch", self.on_toggle_touch_size),
         ]
 
         for index, (label, callback) in enumerate(top_buttons):
-            button = self.create_button(label, callback, "toggle-button")
+            button = self.create_button(label, callback, "btn-func")
             self.top_grid.attach(button, index, 0, 1, 1)
             if label == "Deg":
                 self.angle_button = button
             elif label == "Hist":
                 self.history_button = button
             elif label == "HC":
+                button.get_style_context().add_class("btn-theme")
                 self.contrast_button = button
             elif label == "Touch":
                 self.touch_button = button
@@ -408,7 +503,7 @@ class CalculatorApp:
         revealer = Gtk.Revealer()
         revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
         revealer.set_transition_duration(200)
-        revealer.set_reveal_child(False)
+        revealer.set_reveal_child(self.state.scientific_mode)
         revealer.set_hexpand(True)
         self.root_grid.attach(revealer, 0, 3, 1, 1)
 
@@ -427,7 +522,7 @@ class CalculatorApp:
 
         for row, row_values in enumerate(sci_layout):
             for col, label in enumerate(row_values):
-                button = self.create_button(label, self.on_scientific_input, "function-button")
+                button = self.create_button(label, self.on_scientific_input, "btn-func")
                 self.sci_grid.attach(button, col, row, 1, 1)
 
         self.standard_grid = Gtk.Grid()
@@ -461,12 +556,10 @@ class CalculatorApp:
 
     def resolve_button_style(self, label: str) -> str:
         if label.isdigit() or label == ".":
-            return "number-button"
-        if label == BACKSPACE_SYMBOL:
-            return "function-button"
+            return "btn-number"
         if label == "=":
-            return "equals-button"
-        return "operator-button"
+            return "btn-equal"
+        return "btn-operator"
 
     def create_button(self, label: str, callback, style_class: str) -> Gtk.Button:
         button = Gtk.Button(label=label)
@@ -528,8 +621,9 @@ class CalculatorApp:
         self.state.history_visible = not self.state.history_visible
         self.history_revealer.set_reveal_child(self.state.history_visible)
 
-    def on_toggle_high_contrast(self, _button: Gtk.Button) -> None:
-        self.state.high_contrast = not self.state.high_contrast
+    def on_hc_button_clicked(self, _button: Gtk.Button) -> None:
+        self.state.dark_mode = not self.state.dark_mode
+        self.contrast_button.set_label("Dark" if self.state.dark_mode else "Light")
         self.apply_css()
 
     def on_increase_font(self, _button: Gtk.Button) -> None:
