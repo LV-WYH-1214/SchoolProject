@@ -4,7 +4,7 @@ gi.require_version("Gtk", "3.0")
 import math
 import re
 
-from gi.repository import Gdk, Gtk  # type: ignore[attr-defined]
+from gi.repository import Gdk, GLib, Gtk  # type: ignore[attr-defined]
 from simpleeval import SimpleEval  # type: ignore[import-not-found]
 
 
@@ -13,6 +13,10 @@ MAX_EXPRESSION_LENGTH = 120
 HISTORY_LIMIT = 12
 DEFAULT_BUTTON_MIN_HEIGHT = 52
 LARGE_BUTTON_MIN_HEIGHT = 64
+RESIZE_DEBOUNCE_MS = 120
+SIZE_TIER_SMALL = "small"
+SIZE_TIER_MEDIUM = "medium"
+SIZE_TIER_LARGE = "large"
 ERROR_DIV_ZERO = "Div0"
 ERROR_SYNTAX = "语法错误"
 ERROR_DOMAIN = "域错误"
@@ -45,15 +49,27 @@ class CalculatorApp:
     def __init__(self) -> None:
         self.state = CalculatorState()
         self.evaluator = self._create_evaluator()
+        self.size_tier = SIZE_TIER_MEDIUM
+        self._pending_size_tier = SIZE_TIER_MEDIUM
+        self._resize_debounce_id: int | None = None
+        self._css_provider = Gtk.CssProvider()
 
         self.window = Gtk.Window(title="现代计算器")
-        self.window.set_default_size(360, 580)
-        self.window.set_border_width(12)
+        self.window.set_default_size(420, 640)
+        self.window.set_size_request(320, 500)
+        self.window.set_resizable(True)
         self.window.connect("destroy", Gtk.main_quit)
         self.window.connect("key-press-event", self.on_key_press)
+        self.window.connect("configure-event", self.on_window_configure)
 
-        self.apply_css()
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(),
+            self._css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+
         self.main_display, self.preview_display, self.revealer = self.build_ui(self.window)
+        self.apply_css()
         self.refresh_displays()
 
     def _create_evaluator(self) -> SimpleEval:
@@ -85,210 +101,323 @@ class CalculatorApp:
         }
         return evaluator
 
+    def _determine_size_tier(self, width: int) -> str:
+        if width < 420:
+            return SIZE_TIER_SMALL
+        if width < 700:
+            return SIZE_TIER_MEDIUM
+        return SIZE_TIER_LARGE
+
+    def _get_size_profile(self) -> dict[str, int]:
+        if self.size_tier == SIZE_TIER_SMALL:
+            return {
+                "main": 34,
+                "preview": 18,
+                "button": 17,
+                "toggle": 13,
+                "radius": 12,
+                "spacing": 6,
+                "edge": 10,
+                "shadow": 2,
+                "topbar_min": 38,
+                "history_min": 110,
+            }
+        if self.size_tier == SIZE_TIER_LARGE:
+            return {
+                "main": 48,
+                "preview": 24,
+                "button": 21,
+                "toggle": 16,
+                "radius": 16,
+                "spacing": 12,
+                "edge": 18,
+                "shadow": 4,
+                "topbar_min": 48,
+                "history_min": 180,
+            }
+        return {
+            "main": 40,
+            "preview": 20,
+            "button": 19,
+            "toggle": 14,
+            "radius": 14,
+            "spacing": 9,
+            "edge": 14,
+            "shadow": 3,
+            "topbar_min": 42,
+            "history_min": 140,
+        }
+
     def apply_css(self) -> None:
-        main_size = 38 + self.state.font_scale * 2
-        preview_size = 20 + self.state.font_scale
-        button_size = 18 + self.state.font_scale
-        toggle_size = 14 + self.state.font_scale
+        profile = self._get_size_profile()
+        main_size = profile["main"] + self.state.font_scale * 2
+        preview_size = profile["preview"] + self.state.font_scale
+        button_size = profile["button"] + self.state.font_scale
+        toggle_size = profile["toggle"] + self.state.font_scale
+        radius = profile["radius"]
+        shadow = profile["shadow"]
+        button_min_height = max(profile["topbar_min"], self.state.button_min_height)
 
         if self.state.high_contrast:
-            css = f"""
-            window {{
-                background: #111111;
-            }}
-
-            .display-main {{
-                font-size: {main_size}px;
-                font-weight: 700;
-                color: #ffffff;
-                padding: 8px 0;
-            }}
-
-            .display-preview {{
-                font-size: {preview_size}px;
-                color: #ffd54f;
-                padding: 0 0 10px 0;
-            }}
-
-            button {{
-                min-height: {self.state.button_min_height}px;
-                border-radius: 16px;
-                border: 2px solid #ffffff;
-                font-size: {button_size}px;
-                font-weight: 700;
-            }}
-
-            .number-button {{
-                background: #000000;
-                color: #ffffff;
-            }}
-
-            .operator-button {{
-                background: #2c2c2c;
-                color: #ffffff;
-            }}
-
-            .function-button {{
-                background: #003a75;
-                color: #ffffff;
-            }}
-
-            .equals-button {{
-                background: #ff6f00;
-                color: #000000;
-                border-color: #ffb74d;
-            }}
-
-            .toggle-button {{
-                background: #1f1f1f;
-                color: #ffffff;
-                min-height: 40px;
-                min-width: 60px;
-                font-size: {toggle_size}px;
-            }}
-
-            .history-button {{
-                background: #171717;
-                color: #ffffff;
-                border: 1px solid #666666;
-                padding: 8px;
-            }}
-            """
+            base_bg = "#1a1a1c"
+            number_bg = "#2a2a2d"
+            operator_bg = "#3b3b3f"
+            function_bg = "#255078"
+            accent_bg = "#0a84ff"
+            text_primary = "#f2f2f4"
+            text_secondary = "#c7c7cb"
+            hover_shift = "#45454a"
         else:
-            css = f"""
-            window {{
-                background: #f1f3f5;
-            }}
+            base_bg = "#1c1c1e"
+            number_bg = "#2c2c2e"
+            operator_bg = "#3a3a3c"
+            function_bg = "#48484a"
+            accent_bg = "#ff9f0a"
+            text_primary = "#f4f4f5"
+            text_secondary = "#a9a9ae"
+            hover_shift = "#444448"
 
-            .display-main {{
-                font-size: {main_size}px;
-                font-weight: 700;
-                color: #1f2933;
-                padding: 8px 0;
-            }}
+        css = f"""
+        window {{
+            background: {base_bg};
+        }}
 
-            .display-preview {{
-                font-size: {preview_size}px;
-                color: #7b8794;
-                padding: 0 0 10px 0;
-            }}
+        button {{
+            min-height: {button_min_height}px;
+            border: none;
+            background-image: none;
+            outline: none;
+            border-radius: {radius}px;
+            box-shadow: 0 {shadow}px {shadow * 2}px rgba(0, 0, 0, 0.18);
+            padding: 12px 0;
+            font-size: {button_size}px;
+            font-weight: 400;
+            color: {text_primary};
+        }}
 
-            button {{
-                min-height: {self.state.button_min_height}px;
-                border-radius: 16px;
-                border: 1px solid #d7dde5;
-                font-size: {button_size}px;
-                font-weight: 600;
-            }}
+        button:hover {{
+            box-shadow: 0 {shadow + 1}px {shadow * 2 + 2}px rgba(0, 0, 0, 0.24);
+        }}
 
-            .number-button {{
-                background: #ffffff;
-                color: #1f2933;
-            }}
+        button:active {{
+            box-shadow: 0 {max(1, shadow - 1)}px {max(2, shadow)}px rgba(0, 0, 0, 0.28);
+        }}
 
-            .operator-button {{
-                background: #e9edf2;
-                color: #1f2933;
-            }}
+        .display-main {{
+            font-family: "Segoe UI", "Helvetica Neue", "Roboto", sans-serif;
+            font-size: {main_size}px;
+            font-weight: 600;
+            color: {text_primary};
+            padding: 10px 2px 4px 2px;
+        }}
 
-            .function-button {{
-                background: #eef6ff;
-                color: #0b4f8c;
-            }}
+        .display-preview {{
+            font-family: "Segoe UI", "Helvetica Neue", "Roboto", sans-serif;
+            font-size: {preview_size}px;
+            font-weight: 400;
+            color: {text_secondary};
+            padding: 0 2px 8px 2px;
+        }}
 
-            .equals-button {{
-                background: #0078d7;
-                color: #ffffff;
-                border-color: #0078d7;
-            }}
+        .number-button {{
+            background: {number_bg};
+            color: {text_primary};
+        }}
 
-            .toggle-button {{
-                background: #e1e8f0;
-                color: #243b53;
-                min-height: 40px;
-                min-width: 60px;
-                font-size: {toggle_size}px;
-            }}
+        .number-button:hover {{
+            background: {hover_shift};
+        }}
 
-            .history-button {{
-                background: #ffffff;
-                color: #1f2933;
-                border: 1px solid #d7dde5;
-                padding: 8px;
-            }}
-            """
+        .number-button:active {{
+            background: #252528;
+        }}
 
-        provider = Gtk.CssProvider()
-        provider.load_from_data(css.encode("utf-8"))
-        Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(),
-            provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-        )
+        .operator-button {{
+            background: {operator_bg};
+            color: {text_primary};
+        }}
+
+        .operator-button:hover {{
+            background: #4a4a4d;
+        }}
+
+        .operator-button:active {{
+            background: #343438;
+        }}
+
+        .function-button {{
+            background: {function_bg};
+            color: {text_primary};
+        }}
+
+        .function-button:hover {{
+            background: #57575a;
+        }}
+
+        .function-button:active {{
+            background: #404044;
+        }}
+
+        .equals-button {{
+            background: {accent_bg};
+            color: #1d1d1f;
+            font-weight: 600;
+        }}
+
+        .equals-button:hover {{
+            background: #ffb340;
+        }}
+
+        .equals-button:active {{
+            background: #e08500;
+        }}
+
+        .toggle-button {{
+            background: {function_bg};
+            color: {text_primary};
+            min-height: {profile["topbar_min"]}px;
+            min-width: 72px;
+            font-size: {toggle_size}px;
+            font-weight: 500;
+        }}
+
+        .toggle-button:hover {{
+            background: #59595d;
+        }}
+
+        .toggle-button:active {{
+            background: #444449;
+        }}
+
+        .history-button {{
+            background: #252528;
+            color: {text_primary};
+            border: none;
+            background-image: none;
+            outline: none;
+            border-radius: {max(8, radius - 4)}px;
+            padding: 10px 8px;
+        }}
+
+        .history-button:hover {{
+            background: #303034;
+        }}
+
+        .history-button:active {{
+            background: #1f1f23;
+        }}
+        """
+
+        self._css_provider.load_from_data(css.encode("utf-8"))
+        self._apply_layout_density(profile)
+
+    def _apply_layout_density(self, profile: dict[str, int]) -> None:
+        if not hasattr(self, "root_grid"):
+            return
+
+        self.window.set_border_width(profile["edge"])
+        self.root_grid.set_row_spacing(profile["spacing"])
+        self.root_grid.set_column_spacing(profile["spacing"])
+        self.top_grid.set_column_spacing(profile["spacing"])
+        self.display_box.set_spacing(max(2, profile["spacing"] // 3))
+        self.sci_grid.set_row_spacing(profile["spacing"])
+        self.sci_grid.set_column_spacing(profile["spacing"])
+        self.standard_grid.set_row_spacing(profile["spacing"])
+        self.standard_grid.set_column_spacing(profile["spacing"])
+        self.history_scroller.set_min_content_height(profile["history_min"])
+
+    def on_window_configure(self, _widget: Gtk.Window, event: Gdk.EventConfigure) -> bool:
+        self._pending_size_tier = self._determine_size_tier(event.width)
+        if self._resize_debounce_id is not None:
+            GLib.source_remove(self._resize_debounce_id)
+        self._resize_debounce_id = GLib.timeout_add(RESIZE_DEBOUNCE_MS, self._on_resize_debounce)
+        return False
+
+    def _on_resize_debounce(self) -> bool:
+        self._resize_debounce_id = None
+        if self._pending_size_tier != self.size_tier:
+            self.size_tier = self._pending_size_tier
+            self.apply_css()
+        return False
 
     def build_ui(self, window: Gtk.Window) -> tuple[Gtk.Label, Gtk.Label, Gtk.Revealer]:
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        window.add(root)
+        self.root_grid = Gtk.Grid()
+        self.root_grid.set_hexpand(True)
+        self.root_grid.set_vexpand(True)
+        window.add(self.root_grid)
 
-        top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        root.pack_start(top_bar, False, False, 0)
+        self.top_grid = Gtk.Grid()
+        self.top_grid.set_hexpand(True)
+        self.top_grid.set_column_homogeneous(True)
+        self.root_grid.attach(self.top_grid, 0, 0, 1, 1)
 
-        sci_button = self.create_button("Sci", self.on_toggle_science, "toggle-button")
-        top_bar.pack_start(sci_button, False, False, 0)
-        self.angle_button = self.create_button("Deg", self.on_toggle_angle_mode, "toggle-button")
-        top_bar.pack_start(self.angle_button, False, False, 4)
-        self.history_button = self.create_button("Hist", self.on_toggle_history, "toggle-button")
-        top_bar.pack_start(self.history_button, False, False, 4)
-        self.contrast_button = self.create_button("HC", self.on_toggle_high_contrast, "toggle-button")
-        top_bar.pack_start(self.contrast_button, False, False, 4)
-        zoom_out_button = self.create_button("A-", self.on_decrease_font, "toggle-button")
-        top_bar.pack_start(zoom_out_button, False, False, 4)
-        zoom_in_button = self.create_button("A+", self.on_increase_font, "toggle-button")
-        top_bar.pack_start(zoom_in_button, False, False, 4)
-        self.touch_button = self.create_button("Touch", self.on_toggle_touch_size, "toggle-button")
-        top_bar.pack_start(self.touch_button, False, False, 4)
+        top_buttons: list[tuple[str, object]] = [
+            ("Sci", self.on_toggle_science),
+            ("Deg", self.on_toggle_angle_mode),
+            ("Hist", self.on_toggle_history),
+            ("HC", self.on_toggle_high_contrast),
+            ("A-", self.on_decrease_font),
+            ("A+", self.on_increase_font),
+            ("Touch", self.on_toggle_touch_size),
+        ]
 
-        display_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        root.pack_start(display_box, False, False, 0)
+        for index, (label, callback) in enumerate(top_buttons):
+            button = self.create_button(label, callback, "toggle-button")
+            self.top_grid.attach(button, index, 0, 1, 1)
+            if label == "Deg":
+                self.angle_button = button
+            elif label == "Hist":
+                self.history_button = button
+            elif label == "HC":
+                self.contrast_button = button
+            elif label == "Touch":
+                self.touch_button = button
+
+        self.display_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.display_box.set_hexpand(True)
+        self.root_grid.attach(self.display_box, 0, 1, 1, 1)
 
         main_display = Gtk.Label(label="0")
         main_display.set_halign(Gtk.Align.END)
         main_display.set_xalign(1.0)
         main_display.set_ellipsize(3)
         main_display.get_style_context().add_class("display-main")
-        display_box.pack_start(main_display, False, False, 0)
+        self.display_box.pack_start(main_display, False, False, 0)
 
         preview_display = Gtk.Label(label="")
         preview_display.set_halign(Gtk.Align.END)
         preview_display.set_xalign(1.0)
         preview_display.get_style_context().add_class("display-preview")
-        display_box.pack_start(preview_display, False, False, 0)
+        self.display_box.pack_start(preview_display, False, False, 0)
 
         self.history_revealer = Gtk.Revealer()
         self.history_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
         self.history_revealer.set_transition_duration(200)
         self.history_revealer.set_reveal_child(False)
-        root.pack_start(self.history_revealer, False, False, 0)
+        self.history_revealer.set_hexpand(True)
+        self.root_grid.attach(self.history_revealer, 0, 2, 1, 1)
 
-        history_scroller = Gtk.ScrolledWindow()
-        history_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        history_scroller.set_min_content_height(120)
-        self.history_revealer.add(history_scroller)
+        self.history_scroller = Gtk.ScrolledWindow()
+        self.history_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.history_revealer.add(self.history_scroller)
 
         self.history_list = Gtk.ListBox()
         self.history_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        history_scroller.add(self.history_list)
+        self.history_scroller.add(self.history_list)
 
         revealer = Gtk.Revealer()
         revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
         revealer.set_transition_duration(200)
         revealer.set_reveal_child(False)
-        root.pack_start(revealer, False, False, 0)
+        revealer.set_hexpand(True)
+        self.root_grid.attach(revealer, 0, 3, 1, 1)
 
-        sci_grid = Gtk.Grid()
-        sci_grid.set_row_spacing(6)
-        sci_grid.set_column_spacing(6)
-        revealer.add(sci_grid)
+        self.sci_grid = Gtk.Grid()
+        self.sci_grid.set_hexpand(True)
+        self.sci_grid.set_vexpand(True)
+        self.sci_grid.set_row_homogeneous(True)
+        self.sci_grid.set_column_homogeneous(True)
+        revealer.add(self.sci_grid)
 
         sci_layout = [
             ["sin", "cos", "tan", "√"],
@@ -299,12 +428,14 @@ class CalculatorApp:
         for row, row_values in enumerate(sci_layout):
             for col, label in enumerate(row_values):
                 button = self.create_button(label, self.on_scientific_input, "function-button")
-                sci_grid.attach(button, col, row, 1, 1)
+                self.sci_grid.attach(button, col, row, 1, 1)
 
-        standard_grid = Gtk.Grid()
-        standard_grid.set_row_spacing(8)
-        standard_grid.set_column_spacing(8)
-        root.pack_start(standard_grid, True, True, 0)
+        self.standard_grid = Gtk.Grid()
+        self.standard_grid.set_hexpand(True)
+        self.standard_grid.set_vexpand(True)
+        self.standard_grid.set_row_homogeneous(True)
+        self.standard_grid.set_column_homogeneous(True)
+        self.root_grid.attach(self.standard_grid, 0, 4, 1, 1)
 
         layout = [
             ["C", BACKSPACE_SYMBOL, "%", "/"],
@@ -322,7 +453,9 @@ class CalculatorApp:
                 style_class = self.resolve_button_style(label)
                 button = self.create_button(label, self.on_standard_input, style_class)
 
-                standard_grid.attach(button, col, row, 1, 1)
+                self.standard_grid.attach(button, col, row, 1, 1)
+
+        self.apply_css()
 
         return main_display, preview_display, revealer
 
@@ -337,6 +470,10 @@ class CalculatorApp:
 
     def create_button(self, label: str, callback, style_class: str) -> Gtk.Button:
         button = Gtk.Button(label=label)
+        button.set_hexpand(True)
+        button.set_vexpand(True)
+        button.set_can_focus(False)
+        button.set_relief(Gtk.ReliefStyle.NONE)
         button.get_style_context().add_class(style_class)
         button.connect("clicked", callback)
         return button

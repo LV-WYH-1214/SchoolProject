@@ -14,7 +14,7 @@ Types of import:
 IMPORTANT: Do NOT post this list to the issue-tracker. Use it as a basis for
             tracking down the missing module yourself. Thanks!
 
-missing module named 'org.python' - imported by copy (optional), xml.sax (delayed, conditional)
+missing module named org - imported by copy (optional)
 missing module named pep517 - imported by importlib.metadata (delayed)
 missing module named grp - imported by subprocess (delayed, conditional, optional), shutil (delayed, optional), tarfile (optional), pathlib (delayed, optional)
 missing module named pwd - imported by posixpath (delayed, conditional), subprocess (delayed, conditional, optional), shutil (delayed, optional), tarfile (optional), pathlib (delayed, optional), netrc (delayed, conditional), getpass (delayed)
@@ -22,7 +22,7 @@ missing module named posix - imported by os (conditional, optional), shutil (con
 missing module named resource - imported by posix (top-level)
 missing module named _frozen_importlib_external - imported by importlib._bootstrap (delayed), importlib (optional), importlib.abc (optional), zipimport (top-level)
 excluded module named _frozen_importlib - imported by importlib (optional), importlib.abc (optional), zipimport (top-level)
-missing module named org - imported by pickle (optional)
+missing module named 'org.python' - imported by pickle (optional), xml.sax (delayed, conditional)
 missing module named _posixsubprocess - imported by subprocess (optional), multiprocessing.util (delayed)
 missing module named fcntl - imported by subprocess (optional), gi._ossighelper (delayed, conditional, optional)
 missing module named _posixshmem - imported by multiprocessing.resource_tracker (conditional), multiprocessing.shared_memory (conditional)
@@ -39,12 +39,12 @@ missing module named pyimod02_importers - imported by D:\app\conda\envs\school_p
 runtime module named gi.repository.Gtk - imported by D:\code\SchoolProject\MyProject\simplecalculator.py (top-level), gi.repository (top-level), gi._gtktemplate (delayed)
 runtime module named gi.repository.Atk - imported by gi.repository.Gtk (top-level)
 runtime module named gi.repository.GObject - imported by gi.repository.Gio (top-level), gi.overrides.Gtk (top-level), gi._gtktemplate (top-level), gi.repository.Pango (top-level), gi.repository.Atk (top-level), gi.repository.cairo (top-level), gi.repository.HarfBuzz (top-level)
-runtime module named gi.repository.GLib - imported by gi.overrides.GdkPixbuf (top-level), gi.repository (top-level), gi._ossighelper (delayed), gi.events (top-level), gi.overrides.Gio (top-level), gi.repository.Gio (top-level), gi.repository.GModule (top-level), gi.overrides.GObject (top-level), gi.repository.GObject (top-level), gi.overrides.Gtk (top-level), gi._gtktemplate (top-level)
-missing module named asyncio.DefaultEventLoopPolicy - imported by asyncio (delayed, conditional), asyncio.events (delayed, conditional)
 runtime module named gi.repository.Gio - imported by gi.overrides.Gdk (conditional), gi.repository (conditional), gi.repository.Gdk (top-level), gi.repository.GdkPixbuf (top-level), gi._gtktemplate (top-level), gi.repository.Pango (top-level)
 runtime module named gi.repository.GModule - imported by gi.repository.GdkPixbuf (top-level), gi.repository.Gio (top-level)
 missing module named gi.repository.GioWin32 - imported by gi.repository (conditional), gi.overrides.Gio (conditional)
 missing module named gi.repository.GioUnix - imported by gi.repository (top-level), gi.overrides.Gio (top-level)
+missing module named asyncio.DefaultEventLoopPolicy - imported by asyncio (delayed, conditional), asyncio.events (delayed, conditional)
+runtime module named gi.repository.GLib - imported by D:\code\SchoolProject\MyProject\simplecalculator.py (top-level), gi.repository (top-level), gi.overrides.GdkPixbuf (top-level), gi._ossighelper (delayed), gi.events (top-level), gi.overrides.Gio (top-level), gi.repository.Gio (top-level), gi.repository.GModule (top-level), gi.overrides.GObject (top-level), gi.repository.GObject (top-level), gi.overrides.Gtk (top-level), gi._gtktemplate (top-level)
 runtime module named gi.repository.Gdk - imported by D:\code\SchoolProject\MyProject\simplecalculator.py (top-level), gi.repository (top-level), gi.repository.Gtk (top-level)
 runtime module named gi.repository.GdkPixbuf - imported by gi.repository.Gdk (top-level)
 runtime module named gi.repository.Pango - imported by gi.repository.Gdk (top-level)
