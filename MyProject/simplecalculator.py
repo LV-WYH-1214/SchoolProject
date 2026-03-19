@@ -10,6 +10,9 @@ from simpleeval import SimpleEval  # type: ignore[import-not-found]
 
 BACKSPACE_SYMBOL = "<="
 MAX_EXPRESSION_LENGTH = 120
+HISTORY_LIMIT = 12
+DEFAULT_BUTTON_MIN_HEIGHT = 52
+LARGE_BUTTON_MIN_HEIGHT = 64
 ERROR_DIV_ZERO = "Div0"
 ERROR_SYNTAX = "语法错误"
 ERROR_DOMAIN = "域错误"
@@ -25,8 +28,13 @@ class CalculatorState:
         self.expression: str = ""
         self.preview: str = ""
         self.last_result: str = ""
+        self.history: list[tuple[str, str]] = []
         self.scientific_mode: bool = False
+        self.history_visible: bool = False
         self.use_degrees: bool = True
+        self.high_contrast: bool = False
+        self.font_scale: int = 0
+        self.button_min_height: int = DEFAULT_BUTTON_MIN_HEIGHT
 
     def clear(self) -> None:
         self.expression = ""
@@ -78,60 +86,137 @@ class CalculatorApp:
         return evaluator
 
     def apply_css(self) -> None:
-        css = """
-        window {
-            background: #f1f3f5;
-        }
+        main_size = 38 + self.state.font_scale * 2
+        preview_size = 20 + self.state.font_scale
+        button_size = 18 + self.state.font_scale
+        toggle_size = 14 + self.state.font_scale
 
-        .display-main {
-            font-size: 38px;
-            font-weight: 700;
-            color: #1f2933;
-            padding: 8px 0;
-        }
+        if self.state.high_contrast:
+            css = f"""
+            window {{
+                background: #111111;
+            }}
 
-        .display-preview {
-            font-size: 20px;
-            color: #7b8794;
-            padding: 0 0 10px 0;
-        }
+            .display-main {{
+                font-size: {main_size}px;
+                font-weight: 700;
+                color: #ffffff;
+                padding: 8px 0;
+            }}
 
-        button {
-            min-height: 52px;
-            border-radius: 16px;
-            border: 1px solid #d7dde5;
-            font-size: 18px;
-            font-weight: 600;
-        }
+            .display-preview {{
+                font-size: {preview_size}px;
+                color: #ffd54f;
+                padding: 0 0 10px 0;
+            }}
 
-        .number-button {
-            background: #ffffff;
-            color: #1f2933;
-        }
+            button {{
+                min-height: {self.state.button_min_height}px;
+                border-radius: 16px;
+                border: 2px solid #ffffff;
+                font-size: {button_size}px;
+                font-weight: 700;
+            }}
 
-        .operator-button {
-            background: #e9edf2;
-            color: #1f2933;
-        }
+            .number-button {{
+                background: #000000;
+                color: #ffffff;
+            }}
 
-        .function-button {
-            background: #eef6ff;
-            color: #0b4f8c;
-        }
+            .operator-button {{
+                background: #2c2c2c;
+                color: #ffffff;
+            }}
 
-        .equals-button {
-            background: #0078d7;
-            color: #ffffff;
-            border-color: #0078d7;
-        }
+            .function-button {{
+                background: #003a75;
+                color: #ffffff;
+            }}
 
-        .toggle-button {
-            background: #e1e8f0;
-            color: #243b53;
-            min-height: 40px;
-            min-width: 64px;
-        }
-        """
+            .equals-button {{
+                background: #ff6f00;
+                color: #000000;
+                border-color: #ffb74d;
+            }}
+
+            .toggle-button {{
+                background: #1f1f1f;
+                color: #ffffff;
+                min-height: 40px;
+                min-width: 60px;
+                font-size: {toggle_size}px;
+            }}
+
+            .history-button {{
+                background: #171717;
+                color: #ffffff;
+                border: 1px solid #666666;
+                padding: 8px;
+            }}
+            """
+        else:
+            css = f"""
+            window {{
+                background: #f1f3f5;
+            }}
+
+            .display-main {{
+                font-size: {main_size}px;
+                font-weight: 700;
+                color: #1f2933;
+                padding: 8px 0;
+            }}
+
+            .display-preview {{
+                font-size: {preview_size}px;
+                color: #7b8794;
+                padding: 0 0 10px 0;
+            }}
+
+            button {{
+                min-height: {self.state.button_min_height}px;
+                border-radius: 16px;
+                border: 1px solid #d7dde5;
+                font-size: {button_size}px;
+                font-weight: 600;
+            }}
+
+            .number-button {{
+                background: #ffffff;
+                color: #1f2933;
+            }}
+
+            .operator-button {{
+                background: #e9edf2;
+                color: #1f2933;
+            }}
+
+            .function-button {{
+                background: #eef6ff;
+                color: #0b4f8c;
+            }}
+
+            .equals-button {{
+                background: #0078d7;
+                color: #ffffff;
+                border-color: #0078d7;
+            }}
+
+            .toggle-button {{
+                background: #e1e8f0;
+                color: #243b53;
+                min-height: 40px;
+                min-width: 60px;
+                font-size: {toggle_size}px;
+            }}
+
+            .history-button {{
+                background: #ffffff;
+                color: #1f2933;
+                border: 1px solid #d7dde5;
+                padding: 8px;
+            }}
+            """
 
         provider = Gtk.CssProvider()
         provider.load_from_data(css.encode("utf-8"))
@@ -151,7 +236,17 @@ class CalculatorApp:
         sci_button = self.create_button("Sci", self.on_toggle_science, "toggle-button")
         top_bar.pack_start(sci_button, False, False, 0)
         self.angle_button = self.create_button("Deg", self.on_toggle_angle_mode, "toggle-button")
-        top_bar.pack_start(self.angle_button, False, False, 6)
+        top_bar.pack_start(self.angle_button, False, False, 4)
+        self.history_button = self.create_button("Hist", self.on_toggle_history, "toggle-button")
+        top_bar.pack_start(self.history_button, False, False, 4)
+        self.contrast_button = self.create_button("HC", self.on_toggle_high_contrast, "toggle-button")
+        top_bar.pack_start(self.contrast_button, False, False, 4)
+        zoom_out_button = self.create_button("A-", self.on_decrease_font, "toggle-button")
+        top_bar.pack_start(zoom_out_button, False, False, 4)
+        zoom_in_button = self.create_button("A+", self.on_increase_font, "toggle-button")
+        top_bar.pack_start(zoom_in_button, False, False, 4)
+        self.touch_button = self.create_button("Touch", self.on_toggle_touch_size, "toggle-button")
+        top_bar.pack_start(self.touch_button, False, False, 4)
 
         display_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         root.pack_start(display_box, False, False, 0)
@@ -168,6 +263,21 @@ class CalculatorApp:
         preview_display.set_xalign(1.0)
         preview_display.get_style_context().add_class("display-preview")
         display_box.pack_start(preview_display, False, False, 0)
+
+        self.history_revealer = Gtk.Revealer()
+        self.history_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
+        self.history_revealer.set_transition_duration(200)
+        self.history_revealer.set_reveal_child(False)
+        root.pack_start(self.history_revealer, False, False, 0)
+
+        history_scroller = Gtk.ScrolledWindow()
+        history_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        history_scroller.set_min_content_height(120)
+        self.history_revealer.add(history_scroller)
+
+        self.history_list = Gtk.ListBox()
+        self.history_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        history_scroller.add(self.history_list)
 
         revealer = Gtk.Revealer()
         revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
@@ -271,6 +381,35 @@ class CalculatorApp:
         self.angle_button.set_label("Deg" if self.state.use_degrees else "Rad")
         self.recompute_preview()
         self.refresh_displays(show_zero_when_empty=False)
+
+    def on_toggle_history(self, _button: Gtk.Button) -> None:
+        self.state.history_visible = not self.state.history_visible
+        self.history_revealer.set_reveal_child(self.state.history_visible)
+
+    def on_toggle_high_contrast(self, _button: Gtk.Button) -> None:
+        self.state.high_contrast = not self.state.high_contrast
+        self.apply_css()
+
+    def on_increase_font(self, _button: Gtk.Button) -> None:
+        if self.state.font_scale >= 3:
+            return
+        self.state.font_scale += 1
+        self.apply_css()
+
+    def on_decrease_font(self, _button: Gtk.Button) -> None:
+        if self.state.font_scale <= -2:
+            return
+        self.state.font_scale -= 1
+        self.apply_css()
+
+    def on_toggle_touch_size(self, _button: Gtk.Button) -> None:
+        if self.state.button_min_height == DEFAULT_BUTTON_MIN_HEIGHT:
+            self.state.button_min_height = LARGE_BUTTON_MIN_HEIGHT
+            self.touch_button.set_label("Touch+")
+        else:
+            self.state.button_min_height = DEFAULT_BUTTON_MIN_HEIGHT
+            self.touch_button.set_label("Touch")
+        self.apply_css()
 
     def clear_all(self) -> None:
         self.state.clear()
@@ -446,10 +585,49 @@ class CalculatorApp:
         if not self.state.preview or self.state.preview in ERROR_MESSAGES:
             return
 
+        self.push_history(self.state.expression, self.state.preview)
         self.state.last_result = self.state.preview
         self.state.expression = self.state.last_result
         self.state.preview = ""
         self.refresh_displays()
+
+    def push_history(self, expression: str, result: str) -> None:
+        if not expression or not result:
+            return
+
+        item = (expression, result)
+        if self.state.history and self.state.history[0] == item:
+            return
+
+        self.state.history.insert(0, item)
+        self.state.history = self.state.history[:HISTORY_LIMIT]
+        self.refresh_history_list()
+
+    def refresh_history_list(self) -> None:
+        for row in self.history_list.get_children():
+            self.history_list.remove(row)
+
+        for expression, result in self.state.history:
+            label = Gtk.Label(label=f"{expression} = {result}")
+            label.set_xalign(0.0)
+            label.set_ellipsize(3)
+
+            button = Gtk.Button()
+            button.add(label)
+            button.set_relief(Gtk.ReliefStyle.NONE)
+            button.get_style_context().add_class("history-button")
+            button.connect("clicked", self.on_history_item_clicked, expression)
+
+            row = Gtk.ListBoxRow()
+            row.add(button)
+            self.history_list.add(row)
+
+        self.history_list.show_all()
+
+    def on_history_item_clicked(self, _button: Gtk.Button, expression: str) -> None:
+        self.state.expression = expression
+        self.recompute_preview()
+        self.refresh_displays(show_zero_when_empty=False)
 
     def refresh_displays(self, show_zero_when_empty: bool = True) -> None:
         if self.state.expression:
