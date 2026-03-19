@@ -1,262 +1,405 @@
-import gi
+import gi  # type: ignore[import-not-found]
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk
+import math
+
+from gi.repository import Gdk, Gtk  # type: ignore[attr-defined]
+from simpleeval import SimpleEval  # type: ignore[import-not-found]
+
+
+BACKSPACE_SYMBOL = "<="
 
 
 class CalculatorState:
-    """
-    计算器状态类：
-    - display: 用于显示数字和结果的 Gtk.Label
-    - current_number: 当前正在输入或当前显示的数字（字符串形式）
-    - result: 已累计的运算结果（浮点数）
-    - operation: 当前待执行的运算符（'+', '-', '*', '/' 或 None)
-    - new_number: 标记下一次数字输入是否需要“开始新数字”
-      True  -> 下一次输入数字时覆盖显示内容
-      False -> 下一次输入数字时在末尾追加
-    """
+    """表达式驱动状态：主屏显示表达式，预览屏显示实时结果。"""
 
     def __init__(self) -> None:
-        # 先放一个占位 Label，后续在 build_ui 中替换为界面上的真实 Label。
-        self.display: Gtk.Label = Gtk.Label(label="0")
-        self.current_number: str = ""
-        self.result: float = 0.0
-        self.operation: str | None = None
-        self.new_number: bool = True
+        self.expression: str = ""
+        self.preview: str = ""
+        self.last_result: str = ""
+        self.scientific_mode: bool = False
 
-    def reset(self) -> None:
-        """重置到初始状态，相当于 C 版本中的 init_calculator_state。"""
-        self.current_number = ""
-        self.result = 0.0
-        self.operation = None
-        self.new_number = True
+    def clear(self) -> None:
+        self.expression = ""
+        self.preview = ""
 
 
-def update_display(state: CalculatorState) -> None:
-    """
-    刷新显示文本。
+class CalculatorApp:
+    def __init__(self) -> None:
+        self.state = CalculatorState()
+        self.evaluator = self._create_evaluator()
 
-    这里做了一个小改进：
-    - 当 current_number 为空时显示 "0"，避免界面出现空白。
-    """
-    text = state.current_number if state.current_number else "0"
-    state.display.set_text(text)
+        self.window = Gtk.Window(title="现代计算器")
+        self.window.set_default_size(360, 580)
+        self.window.set_border_width(12)
+        self.window.connect("destroy", Gtk.main_quit)
+        self.window.connect("key-press-event", self.on_key_press)
 
+        self.apply_css()
+        self.main_display, self.preview_display, self.revealer = self.build_ui(self.window)
+        self.refresh_displays()
 
-def apply_pending_operation(state: CalculatorState, current: float) -> None:
-    """
-    将“当前输入值 current”应用到“累计结果 result”上。
+    def _create_evaluator(self) -> SimpleEval:
+        evaluator = SimpleEval()
+        evaluator.functions = {
+            "sin": math.sin,
+            "cos": math.cos,
+            "tan": math.tan,
+            "sqrt": math.sqrt,
+            "log": math.log10,
+            "ln": math.log,
+            "abs": abs,
+        }
+        evaluator.names = {
+            "pi": math.pi,
+            "e": math.e,
+        }
+        return evaluator
 
-    逻辑与 C 版本一致：
-    - 如果已有待执行运算符，就按该运算符计算
-    - 如果没有待执行运算符，说明这是第一次输入，直接把 current 赋给 result
-    """
-    if state.operation == "+":
-        state.result += current
-    elif state.operation == "-":
-        state.result -= current
-    elif state.operation == "*":
-        state.result *= current
-    elif state.operation == "/":
-        # 这里处理除零，避免程序崩溃或出现不可控结果。
-        # 与传统计算器类似，显示 Error 并重置运算状态。
-        if current == 0:
-            state.current_number = "Error"
-            state.result = 0.0
-            state.operation = None
-            state.new_number = True
-            return
-        state.result /= current
-    else:
-        state.result = current
+    def apply_css(self) -> None:
+        css = """
+        window {
+            background: #f1f3f5;
+        }
 
+        .display-main {
+            font-size: 38px;
+            font-weight: 700;
+            color: #1f2933;
+            padding: 8px 0;
+        }
 
-def format_result(value: float) -> str:
-    """
-    将浮点结果格式化为较短字符串，近似 C 代码中的 "%.8g" 效果。
-    - 使用 8 位有效数字
-    - 自动去掉不必要的末尾 0
-    """
-    return f"{value:.8g}"
+        .display-preview {
+            font-size: 20px;
+            color: #7b8794;
+            padding: 0 0 10px 0;
+        }
 
+        button {
+            min-height: 52px;
+            border-radius: 16px;
+            border: 1px solid #d7dde5;
+            font-size: 18px;
+            font-weight: 600;
+        }
 
-def on_number_clicked(button: Gtk.Button, state: CalculatorState) -> None:
-    """
-    数字/小数点按钮回调：
-    - 如果是新数字输入阶段，直接覆盖 current_number
-    - 否则将数字追加到 current_number 末尾
-    """
-    text = button.get_label() or ""
+        .number-button {
+            background: #ffffff;
+            color: #1f2933;
+        }
 
-    # 如果当前显示 Error，下一次输入数字直接开始新输入
-    if state.current_number == "Error":
-        state.current_number = ""
-        state.new_number = True
+        .operator-button {
+            background: #e9edf2;
+            color: #1f2933;
+        }
 
-    if text == ".":
-        if state.new_number:
-            # 新数字以小数点开头时，统一显示为 0.
-            state.current_number = "0."
-            state.new_number = False
-        elif "." not in state.current_number:
-            # 同一个数字中只允许一个小数点
-            state.current_number += "."
-    else:
-        if state.new_number:
-            state.current_number = text
-            state.new_number = False
+        .function-button {
+            background: #eef6ff;
+            color: #0b4f8c;
+        }
+
+        .equals-button {
+            background: #0078d7;
+            color: #ffffff;
+            border-color: #0078d7;
+        }
+
+        .toggle-button {
+            background: #e1e8f0;
+            color: #243b53;
+            min-height: 40px;
+            min-width: 64px;
+        }
+        """
+
+        provider = Gtk.CssProvider()
+        provider.load_from_data(css.encode("utf-8"))
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(),
+            provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+
+    def build_ui(self, window: Gtk.Window) -> tuple[Gtk.Label, Gtk.Label, Gtk.Revealer]:
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        window.add(root)
+
+        top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        root.pack_start(top_bar, False, False, 0)
+
+        sci_button = self.create_button("Sci", self.on_toggle_science, "toggle-button")
+        top_bar.pack_start(sci_button, False, False, 0)
+
+        display_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        root.pack_start(display_box, False, False, 0)
+
+        main_display = Gtk.Label(label="0")
+        main_display.set_halign(Gtk.Align.END)
+        main_display.set_xalign(1.0)
+        main_display.set_ellipsize(3)
+        main_display.get_style_context().add_class("display-main")
+        display_box.pack_start(main_display, False, False, 0)
+
+        preview_display = Gtk.Label(label="")
+        preview_display.set_halign(Gtk.Align.END)
+        preview_display.set_xalign(1.0)
+        preview_display.get_style_context().add_class("display-preview")
+        display_box.pack_start(preview_display, False, False, 0)
+
+        revealer = Gtk.Revealer()
+        revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
+        revealer.set_transition_duration(200)
+        revealer.set_reveal_child(False)
+        root.pack_start(revealer, False, False, 0)
+
+        sci_grid = Gtk.Grid()
+        sci_grid.set_row_spacing(6)
+        sci_grid.set_column_spacing(6)
+        revealer.add(sci_grid)
+
+        sci_layout = [
+            ["sin", "cos", "tan", "√"],
+            ["(", ")", "π", "x^y"],
+        ]
+
+        for row, row_values in enumerate(sci_layout):
+            for col, label in enumerate(row_values):
+                button = self.create_button(label, self.on_scientific_input, "function-button")
+                sci_grid.attach(button, col, row, 1, 1)
+
+        standard_grid = Gtk.Grid()
+        standard_grid.set_row_spacing(8)
+        standard_grid.set_column_spacing(8)
+        root.pack_start(standard_grid, True, True, 0)
+
+        layout = [
+            ["C", BACKSPACE_SYMBOL, "/", "*"],
+            ["7", "8", "9", "-"],
+            ["4", "5", "6", "+"],
+            ["1", "2", "3", "="],
+            ["0", ".", "", ""],
+        ]
+
+        for row, row_values in enumerate(layout):
+            for col, label in enumerate(row_values):
+                if not label:
+                    continue
+
+                style_class = self.resolve_button_style(label)
+                button = self.create_button(label, self.on_standard_input, style_class)
+
+                if label == "0":
+                    standard_grid.attach(button, col, row, 2, 1)
+                    continue
+                if row == 4 and col == 1:
+                    col = 2
+
+                standard_grid.attach(button, col, row, 1, 1)
+
+        return main_display, preview_display, revealer
+
+    def resolve_button_style(self, label: str) -> str:
+        if label.isdigit() or label == ".":
+            return "number-button"
+        if label == BACKSPACE_SYMBOL:
+            return "function-button"
+        if label == "=":
+            return "equals-button"
+        return "operator-button"
+
+    def create_button(self, label: str, callback, style_class: str) -> Gtk.Button:
+        button = Gtk.Button(label=label)
+        button.get_style_context().add_class(style_class)
+        button.connect("clicked", callback)
+        return button
+
+    def on_standard_input(self, button: Gtk.Button) -> None:
+        label = button.get_label() or ""
+        if label == "C":
+            self.clear_all()
+        elif label == BACKSPACE_SYMBOL:
+            self.backspace()
+        elif label == "=":
+            self.commit_result()
         else:
-            state.current_number += text
+            self.append_token(label)
 
-    update_display(state)
+    def on_scientific_input(self, button: Gtk.Button) -> None:
+        label = button.get_label() or ""
+        mapping = {
+            "sin": "sin(",
+            "cos": "cos(",
+            "tan": "tan(",
+            "√": "sqrt(",
+            "π": "pi",
+            "x^y": "**",
+        }
+        self.append_token(mapping.get(label, label))
 
+    def on_toggle_science(self, _button: Gtk.Button) -> None:
+        self.state.scientific_mode = not self.state.scientific_mode
+        self.revealer.set_reveal_child(self.state.scientific_mode)
 
-def on_operator_clicked(button: Gtk.Button, state: CalculatorState) -> None:
-    """
-    运算符按钮回调（+ - * /):
-    1. 读取当前输入数字并应用到累计结果
-    2. 保存新的待执行运算符
-    3. 进入“等待下一段数字输入”状态
-    4. 显示当前累计结果
-    """
-    text = button.get_label() or ""
+    def clear_all(self) -> None:
+        self.state.clear()
+        self.refresh_displays()
 
-    # 若当前内容不可用于数值计算（如 Error），忽略本次操作
-    if state.current_number == "Error":
-        return
-
-    if state.current_number:
-        current = float(state.current_number)
-        apply_pending_operation(state, current)
-
-        # 如果在 apply_pending_operation 内触发了 Error，则直接刷新后返回
-        if state.current_number == "Error":
-            update_display(state)
+    def backspace(self) -> None:
+        if not self.state.expression:
+            self.state.preview = ""
+            self.refresh_displays(show_zero_when_empty=False)
             return
 
-        state.operation = text[:1] if text else None
-        state.new_number = True
-        state.current_number = format_result(state.result)
-        update_display(state)
-
-
-def on_equals_clicked(_button: Gtk.Button, state: CalculatorState) -> None:
-    """
-    等号按钮回调：
-    - 将当前输入应用到累计结果
-    - 显示最终结果
-    - 清空待执行运算符，下一次数字输入将开启新数字
-    """
-    if state.current_number == "Error":
-        return
-
-    if state.current_number:
-        current = float(state.current_number)
-        apply_pending_operation(state, current)
-
-        if state.current_number == "Error":
-            update_display(state)
-            return
-
-        state.current_number = format_result(state.result)
-        update_display(state)
-
-        state.operation = None
-        state.new_number = True
-
-
-def on_clear_clicked(_button: Gtk.Button, state: CalculatorState) -> None:
-    """清除按钮回调：恢复初始状态并刷新显示。"""
-    state.reset()
-    update_display(state)
-
-
-def create_button(label: str, callback, state: CalculatorState) -> Gtk.Button:
-    """
-    创建按钮并绑定 clicked 信号。
-
-    参数：
-    - label: 按钮文本
-    - callback: 点击回调函数
-    - state: 作为用户数据传给回调，便于共享计算器状态
-    """
-    button = Gtk.Button(label=label)
-    button.connect("clicked", callback, state)
-    return button
-
-
-def build_ui() -> Gtk.Window:
-    """创建主窗口和全部控件，返回窗口对象。"""
-    state = CalculatorState()
-
-    # 主窗口
-    window = Gtk.Window(title="简易计算器")
-    window.set_default_size(300, 400)
-    window.set_border_width(10)
-
-    # 关闭窗口时退出 GTK 主循环
-    window.connect("destroy", Gtk.main_quit)
-
-    # 垂直布局容器
-    vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-    window.add(vbox)
-
-    # 显示标签：右对齐，初始值为 0
-    state.display = Gtk.Label(label="0")
-    state.display.set_halign(Gtk.Align.END)
-    vbox.pack_start(state.display, False, False, 5)
-
-    # 按钮网格
-    grid = Gtk.Grid()
-    grid.set_row_spacing(5)
-    grid.set_column_spacing(5)
-    vbox.pack_start(grid, True, True, 5)
-
-    # 清除按钮（第一行占满 4 列）
-    clear_button = create_button("C", on_clear_clicked, state)
-    grid.attach(clear_button, 0, 0, 4, 1)
-
-    # 数字按钮（1-9 按计算器常规布局）
-    for i in range(10):
-        button = create_button(str(i), on_number_clicked, state)
-        if i == 0:
-            # 0 放在底部第一列
-            grid.attach(button, 0, 4, 1, 1)
+        if self.state.expression.endswith("**"):
+            self.state.expression = self.state.expression[:-2]
         else:
-            # 与原 C 代码相同的行列映射规则
-            row = 3 - (i - 1) // 3
-            col = (i - 1) % 3
-            grid.attach(button, col, row, 1, 1)
+            self.state.expression = self.state.expression[:-1]
+        self.recompute_preview()
+        self.refresh_displays(show_zero_when_empty=False)
 
-    # 小数点按钮
-    dot_button = create_button(".", on_number_clicked, state)
-    grid.attach(dot_button, 1, 4, 1, 1)
+    def append_token(self, token: str) -> None:
+        if token == "^":
+            token = "**"
 
-    # 运算符按钮（右侧一列）
-    add_button = create_button("+", on_operator_clicked, state)
-    grid.attach(add_button, 3, 1, 1, 1)
+        if token == "." and not self.can_append_decimal():
+            return
 
-    sub_button = create_button("-", on_operator_clicked, state)
-    grid.attach(sub_button, 3, 2, 1, 1)
+        if self.should_insert_multiply(token):
+            self.state.expression += "*"
 
-    mul_button = create_button("*", on_operator_clicked, state)
-    grid.attach(mul_button, 3, 3, 1, 1)
+        if token in {"+", "-", "*", "/"}:
+            self.append_operator(token)
+        else:
+            self.state.expression += token
 
-    div_button = create_button("/", on_operator_clicked, state)
-    grid.attach(div_button, 3, 4, 1, 1)
+        self.recompute_preview()
+        self.refresh_displays()
 
-    # 等号按钮
-    equals_button = create_button("=", on_equals_clicked, state)
-    grid.attach(equals_button, 2, 4, 1, 1)
+    def append_operator(self, operator: str) -> None:
+        expression = self.state.expression
+        if not expression and operator != "-":
+            return
 
-    return window
+        if expression.endswith(("+", "-", "*", "/")):
+            self.state.expression = expression[:-1] + operator
+            return
+
+        self.state.expression += operator
+
+    def should_insert_multiply(self, token: str) -> bool:
+        expression = self.state.expression
+        if not expression:
+            return False
+
+        prev = expression[-1]
+        token_starts_group = token.startswith(("sin", "cos", "tan", "sqrt", "(", "pi", "e"))
+        prev_can_multiply = prev.isdigit() or prev in {")", ".", "i", "e"}
+
+        return prev_can_multiply and token_starts_group
+
+    def can_append_decimal(self) -> bool:
+        expression = self.state.expression
+        if not expression:
+            self.state.expression = "0"
+            return True
+
+        index = len(expression) - 1
+        while index >= 0 and (expression[index].isdigit() or expression[index] == "."):
+            index -= 1
+        segment = expression[index + 1 :]
+        return "." not in segment
+
+    def recompute_preview(self) -> None:
+        expression = self.state.expression
+        if not expression:
+            self.state.preview = ""
+            return
+
+        try:
+            value = self.evaluator.eval(expression)
+            self.state.preview = self.format_result(value)
+        except ZeroDivisionError:
+            self.state.preview = "错误"
+        except Exception:
+            self.state.preview = ""
+
+    def commit_result(self) -> None:
+        if not self.state.preview or self.state.preview == "错误":
+            return
+
+        self.state.last_result = self.state.preview
+        self.state.expression = self.state.last_result
+        self.state.preview = ""
+        self.refresh_displays()
+
+    def refresh_displays(self, show_zero_when_empty: bool = True) -> None:
+        if self.state.expression:
+            expression_text = self.state.expression
+        else:
+            expression_text = "0" if show_zero_when_empty else ""
+        self.main_display.set_text(expression_text)
+        self.preview_display.set_text(self.state.preview)
+
+    def on_key_press(self, _widget: Gtk.Window, event: Gdk.EventKey) -> bool:
+        name = Gdk.keyval_name(event.keyval) or ""
+        char = event.string or ""
+
+        if name in {"Return", "KP_Enter"}:
+            self.commit_result()
+            return True
+        if name == "BackSpace":
+            self.backspace()
+            return True
+        if name == "Escape":
+            self.clear_all()
+            return True
+
+        keypad_map = {
+            "KP_0": "0",
+            "KP_1": "1",
+            "KP_2": "2",
+            "KP_3": "3",
+            "KP_4": "4",
+            "KP_5": "5",
+            "KP_6": "6",
+            "KP_7": "7",
+            "KP_8": "8",
+            "KP_9": "9",
+            "KP_Decimal": ".",
+            "KP_Add": "+",
+            "KP_Subtract": "-",
+            "KP_Multiply": "*",
+            "KP_Divide": "/",
+        }
+
+        if name in keypad_map:
+            self.append_token(keypad_map[name])
+            return True
+
+        if char in "0123456789.+-*/()":
+            self.append_token(char)
+            return True
+
+        if char == "^":
+            self.append_token("**")
+            return True
+
+        return False
+
+    @staticmethod
+    def format_result(value: object) -> str:
+        if isinstance(value, float):
+            return f"{value:.10g}"
+        return str(value)
+
+    def run(self) -> None:
+        self.window.show_all()
+        Gtk.main()
 
 
 def main() -> None:
-    """程序入口。"""
-    window = build_ui()
-    window.show_all()
-    Gtk.main()
+    app = CalculatorApp()
+    app.run()
 
 
 if __name__ == "__main__":
