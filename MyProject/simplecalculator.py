@@ -1,10 +1,14 @@
+"""GTK scientific calculator with expression preview and history support."""
+
 import gi  # type: ignore[import-not-found]
 
 gi.require_version("Gtk", "3.0")
+import logging
 import math
 import re
+from collections.abc import Callable
 
-from gi.repository import Gdk, GLib, Gtk  # type: ignore[attr-defined]
+from gi.repository import Gdk, GLib, Gtk, Pango  # type: ignore[attr-defined]
 from simpleeval import SimpleEval  # type: ignore[import-not-found]
 
 
@@ -19,15 +23,28 @@ MIN_WINDOW_HEIGHT = 640
 DEFAULT_BUTTON_MIN_HEIGHT = 52
 LARGE_BUTTON_MIN_HEIGHT = 64
 RESIZE_DEBOUNCE_MS = 120
+REVEALER_TRANSITION_DURATION_MS = 200
 SIZE_TIER_SMALL = "small"
 SIZE_TIER_MEDIUM = "medium"
 SIZE_TIER_LARGE = "large"
+ELLIPSIZE_MODE = Pango.EllipsizeMode.END
 ERROR_DIV_ZERO = "Div0"
 ERROR_SYNTAX = "语法错误"
 ERROR_DOMAIN = "域错误"
 ERROR_OVERFLOW = "溢出"
 ERROR_GENERIC = "错误"
 ERROR_MESSAGES = {ERROR_DIV_ZERO, ERROR_SYNTAX, ERROR_DOMAIN, ERROR_OVERFLOW, ERROR_GENERIC}
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+HistoryItem = tuple[str, str]
+ButtonCallback = Callable[[Gtk.Button], None]
+
+BINARY_OPERATORS = {"+", "-", "*", "/"}
+INCOMPLETE_END_TOKENS = BINARY_OPERATORS | {"("}
+FUNCTION_PREFIXES = ("sin", "cos", "tan", "sqrt", "log", "ln", "abs", "(", "pi", "e")
 
 
 class CalculatorState:
@@ -37,7 +54,7 @@ class CalculatorState:
         self.expression: str = ""
         self.preview: str = ""
         self.last_result: str = ""
-        self.history: list[tuple[str, str]] = []
+        self.history: list[HistoryItem] = []
         self.scientific_mode: bool = True
         self.history_visible: bool = False
         self.use_degrees: bool = True
@@ -434,19 +451,13 @@ class CalculatorApp:
             self.apply_css()
         return False
 
-    def build_ui(self, window: Gtk.Window) -> tuple[Gtk.Label, Gtk.Label, Gtk.Revealer]:
-        self.root_grid = Gtk.Grid()
-        self.root_grid.set_hexpand(True)
-        self.root_grid.set_vexpand(True)
-        self.root_grid.get_style_context().add_class("app-root")
-        window.add(self.root_grid)
-
+    def _build_top_controls(self) -> None:
         self.top_grid = Gtk.Grid()
         self.top_grid.set_hexpand(True)
         self.top_grid.set_column_homogeneous(True)
         self.root_grid.attach(self.top_grid, 0, 0, 1, 1)
 
-        top_buttons: list[tuple[str, object]] = [
+        top_buttons: list[tuple[str, ButtonCallback]] = [
             ("Sci", self.on_toggle_science),
             ("Deg", self.on_toggle_angle_mode),
             ("Hist", self.on_toggle_history),
@@ -470,6 +481,7 @@ class CalculatorApp:
             elif label == "Touch":
                 self.touch_button = button
 
+    def _build_display_area(self) -> tuple[Gtk.Label, Gtk.Label]:
         self.display_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.display_box.set_hexpand(True)
         self.root_grid.attach(self.display_box, 0, 1, 1, 1)
@@ -477,7 +489,7 @@ class CalculatorApp:
         main_display = Gtk.Label(label="0")
         main_display.set_halign(Gtk.Align.END)
         main_display.set_xalign(1.0)
-        main_display.set_ellipsize(3)
+        main_display.set_ellipsize(ELLIPSIZE_MODE)
         main_display.get_style_context().add_class("display-main")
         self.display_box.pack_start(main_display, False, False, 0)
 
@@ -487,9 +499,12 @@ class CalculatorApp:
         preview_display.get_style_context().add_class("display-preview")
         self.display_box.pack_start(preview_display, False, False, 0)
 
+        return main_display, preview_display
+
+    def _build_history_panel(self) -> None:
         self.history_revealer = Gtk.Revealer()
         self.history_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
-        self.history_revealer.set_transition_duration(200)
+        self.history_revealer.set_transition_duration(REVEALER_TRANSITION_DURATION_MS)
         self.history_revealer.set_reveal_child(False)
         self.history_revealer.set_hexpand(True)
         self.root_grid.attach(self.history_revealer, 0, 2, 1, 1)
@@ -502,9 +517,10 @@ class CalculatorApp:
         self.history_list.set_selection_mode(Gtk.SelectionMode.NONE)
         self.history_scroller.add(self.history_list)
 
+    def _build_scientific_panel(self) -> Gtk.Revealer:
         revealer = Gtk.Revealer()
         revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
-        revealer.set_transition_duration(200)
+        revealer.set_transition_duration(REVEALER_TRANSITION_DURATION_MS)
         revealer.set_reveal_child(self.state.scientific_mode)
         revealer.set_hexpand(True)
         self.root_grid.attach(revealer, 0, 3, 1, 1)
@@ -527,6 +543,9 @@ class CalculatorApp:
                 button = self.create_button(label, self.on_scientific_input, "btn-func")
                 self.sci_grid.attach(button, col, row, 1, 1)
 
+        return revealer
+
+    def _build_standard_panel(self) -> None:
         self.standard_grid = Gtk.Grid()
         self.standard_grid.set_hexpand(True)
         self.standard_grid.set_vexpand(True)
@@ -549,10 +568,20 @@ class CalculatorApp:
 
                 style_class = self.resolve_button_style(label)
                 button = self.create_button(label, self.on_standard_input, style_class)
-
                 self.standard_grid.attach(button, col, row, 1, 1)
 
-        self.apply_css()
+    def build_ui(self, window: Gtk.Window) -> tuple[Gtk.Label, Gtk.Label, Gtk.Revealer]:
+        self.root_grid = Gtk.Grid()
+        self.root_grid.set_hexpand(True)
+        self.root_grid.set_vexpand(True)
+        self.root_grid.get_style_context().add_class("app-root")
+        window.add(self.root_grid)
+
+        self._build_top_controls()
+        main_display, preview_display = self._build_display_area()
+        self._build_history_panel()
+        revealer = self._build_scientific_panel()
+        self._build_standard_panel()
 
         return main_display, preview_display, revealer
 
@@ -563,7 +592,12 @@ class CalculatorApp:
             return "btn-equal"
         return "btn-operator"
 
-    def create_button(self, label: str, callback, style_class: str) -> Gtk.Button:
+    def create_button(
+        self,
+        label: str,
+        callback: Callable[[Gtk.Button], None],
+        style_class: str,
+    ) -> Gtk.Button:
         button = Gtk.Button(label=label)
         button.set_hexpand(True)
         button.set_vexpand(True)
@@ -733,7 +767,7 @@ class CalculatorApp:
         if self.should_insert_multiply(token):
             self.state.expression += "*"
 
-        if token in {"+", "-", "*", "/"}:
+        if token in BINARY_OPERATORS:
             self.append_operator(token)
         else:
             self.state.expression += token
@@ -746,7 +780,7 @@ class CalculatorApp:
         if not expression and operator != "-":
             return
 
-        if expression.endswith(("+", "-", "*", "/")):
+        if expression.endswith(tuple(BINARY_OPERATORS)):
             self.state.expression = expression[:-1] + operator
             return
 
@@ -758,13 +792,13 @@ class CalculatorApp:
             return False
 
         prev = expression[-1]
-        token_starts_group = token.startswith(("sin", "cos", "tan", "sqrt", "log", "ln", "abs", "(", "pi", "e"))
+        token_starts_group = token.startswith(FUNCTION_PREFIXES)
         prev_can_multiply = prev.isdigit() or prev in {")", ".", "i", "e"}
 
         return prev_can_multiply and token_starts_group
 
     def can_append_token(self, token: str) -> bool:
-        if token in {"+", "-", "*", "/", ")"}:
+        if token in BINARY_OPERATORS or token == ")":
             return True
         return len(self.state.expression) + len(token) <= MAX_EXPRESSION_LENGTH
 
@@ -778,7 +812,7 @@ class CalculatorApp:
         if opens <= closes:
             return False
 
-        return expression[-1] not in {"+", "-", "*", "/", "("}
+        return expression[-1] not in INCOMPLETE_END_TOKENS
 
     def find_last_number_span(self) -> tuple[int, int] | None:
         expression = self.state.expression
@@ -819,7 +853,7 @@ class CalculatorApp:
             self.refresh_displays(show_zero_when_empty=False)
             return
 
-        if self.state.expression.endswith(("+", "-", "*", "/", "(")):
+        if self.state.expression.endswith(tuple(INCOMPLETE_END_TOKENS)):
             if len(self.state.expression) < MAX_EXPRESSION_LENGTH:
                 self.state.expression += "-"
                 self.refresh_displays(show_zero_when_empty=False)
@@ -858,6 +892,7 @@ class CalculatorApp:
         except (SyntaxError, TypeError):
             self.state.preview = ERROR_SYNTAX
         except Exception:
+            LOGGER.exception("Unexpected evaluation error for expression: %s", expression)
             self.state.preview = ERROR_GENERIC
 
     @staticmethod
@@ -865,7 +900,7 @@ class CalculatorApp:
         if not expression:
             return True
 
-        if expression.endswith(("+", "-", "*", "/", "(")):
+        if expression.endswith(tuple(INCOMPLETE_END_TOKENS)):
             return True
 
         return expression.count("(") > expression.count(")")
@@ -899,7 +934,7 @@ class CalculatorApp:
         for expression, result in self.state.history:
             label = Gtk.Label(label=f"{expression} = {result}")
             label.set_xalign(0.0)
-            label.set_ellipsize(3)
+            label.set_ellipsize(ELLIPSIZE_MODE)
 
             button = Gtk.Button()
             button.add(label)
@@ -929,6 +964,7 @@ class CalculatorApp:
     def on_key_press(self, _widget: Gtk.Window, event: Gdk.EventKey) -> bool:
         name = Gdk.keyval_name(event.keyval) or ""
         char = event.string or ""
+        is_shift_pressed = bool(event.state & Gdk.ModifierType.SHIFT_MASK)
 
         if name in {"Return", "KP_Enter"}:
             self.commit_result()
@@ -960,6 +996,23 @@ class CalculatorApp:
 
         if name in keypad_map:
             self.append_token(keypad_map[name])
+            return True
+
+        # Handle operator keys robustly across keyboard layouts/input methods.
+        if name == "plus":
+            self.append_token("+")
+            return True
+        if name == "minus":
+            self.append_token("-")
+            return True
+        if name in {"asterisk", "slash"}:
+            self.append_token("*" if name == "asterisk" else "/")
+            return True
+        if name in {"parenleft", "parenright"}:
+            self.append_token("(" if name == "parenleft" else ")")
+            return True
+        if name == "equal" and is_shift_pressed:
+            self.append_token("+")
             return True
 
         if char in "0123456789.+-*/()%":
