@@ -11,6 +11,7 @@ from simpleeval import SimpleEval  # type: ignore[import-not-found]
 BACKSPACE_SYMBOL = "<="
 MAX_EXPRESSION_LENGTH = 120
 HISTORY_LIMIT = 12
+HISTORY_EXPORT_DEFAULT_NAME = "history.txt"
 DEFAULT_WINDOW_WIDTH = 640
 DEFAULT_WINDOW_HEIGHT = 1080
 MIN_WINDOW_WIDTH = 360
@@ -449,6 +450,7 @@ class CalculatorApp:
             ("Sci", self.on_toggle_science),
             ("Deg", self.on_toggle_angle_mode),
             ("Hist", self.on_toggle_history),
+            ("Export", self.on_export_history),
             ("HC", self.on_hc_button_clicked),
             ("A-", self.on_decrease_font),
             ("A+", self.on_increase_font),
@@ -620,6 +622,57 @@ class CalculatorApp:
     def on_toggle_history(self, _button: Gtk.Button) -> None:
         self.state.history_visible = not self.state.history_visible
         self.history_revealer.set_reveal_child(self.state.history_visible)
+
+    def on_export_history(self, _button: Gtk.Button) -> None:
+        if not self.state.history:
+            self.state.preview = "无历史可导出"
+            self.refresh_displays(show_zero_when_empty=False)
+            return
+
+        export_path = self.choose_export_path()
+        if not export_path:
+            return
+
+        try:
+            with open(export_path, "w", encoding="utf-8") as file:
+                for expression, result in self.state.history:
+                    file.write(f"{expression} = {result}\n")
+            self.state.preview = "导出成功"
+        except OSError:
+            self.state.preview = "导出失败"
+
+        self.refresh_displays(show_zero_when_empty=False)
+
+    def choose_export_path(self) -> str | None:
+        dialog = Gtk.FileChooserDialog(
+            title="导出历史记录",
+            parent=self.window,
+            action=Gtk.FileChooserAction.SAVE,
+        )
+        dialog.add_buttons(
+            Gtk.STOCK_CANCEL,
+            Gtk.ResponseType.CANCEL,
+            Gtk.STOCK_SAVE,
+            Gtk.ResponseType.ACCEPT,
+        )
+        dialog.set_do_overwrite_confirmation(True)
+        dialog.set_current_name(HISTORY_EXPORT_DEFAULT_NAME)
+
+        text_filter = Gtk.FileFilter()
+        text_filter.set_name("Text files (*.txt)")
+        text_filter.add_pattern("*.txt")
+        dialog.add_filter(text_filter)
+
+        all_filter = Gtk.FileFilter()
+        all_filter.set_name("All files")
+        all_filter.add_pattern("*")
+        dialog.add_filter(all_filter)
+
+        response = dialog.run()
+        file_path = dialog.get_filename() if response == Gtk.ResponseType.ACCEPT else None
+        dialog.destroy()
+
+        return file_path
 
     def on_hc_button_clicked(self, _button: Gtk.Button) -> None:
         self.state.dark_mode = not self.state.dark_mode
