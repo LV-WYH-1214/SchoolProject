@@ -59,7 +59,7 @@ class CalculatorState:
         self.history_visible: bool = False
         self.use_degrees: bool = True
         self.dark_mode: bool = True
-        self.font_scale: int = 0
+        self.font_scale: int = 0 ##限制范围 -2到3，默认0
         self.button_min_height: int = DEFAULT_BUTTON_MIN_HEIGHT
 
     def clear(self) -> None:
@@ -68,27 +68,28 @@ class CalculatorState:
 
 
 class CalculatorApp:
-    def __init__(self) -> None:
-        self.state = CalculatorState()
-        self.evaluator = self._create_evaluator()
-        self.size_tier = SIZE_TIER_MEDIUM
-        self._pending_size_tier = SIZE_TIER_MEDIUM
-        self._resize_debounce_id: int | None = None
-        self._css_provider = Gtk.CssProvider()
+    def __init__(self) -> None:  # 构造函数：创建 CalculatorApp 实例时自动执行
+        self.state = CalculatorState()  # 创建全局状态对象，保存表达式、预览、历史与界面开关状态
+        self.evaluator = self._create_evaluator()  # 创建表达式求值器（SimpleEval），用于计算输入公式
+        self.size_tier = SIZE_TIER_MEDIUM  # 当前窗口尺寸档位，默认中等
+        self._pending_size_tier = SIZE_TIER_MEDIUM  # 记录待应用的尺寸档位（用于 resize 防抖）
+        self._resize_debounce_id: int | None = None  # 记录防抖定时器 ID；None 表示当前无定时任务
+        # 上面这一句的意思是：定义一个实例变量 _resize_debounce_id，类型可以是 int 或 None。这个变量用于存储 GLib.timeout_add 返回的定时器 ID。当窗口尺寸变化时，会设置一个防抖定时器来延迟处理 resize 事件，以避免频繁触发计算和界面更新。如果 _resize_debounce_id 不为 None，说明已经有一个定时器在等待执行，此时需要先取消它（通过 GLib.source_remove）再设置新的定时器。
+        self._css_provider = Gtk.CssProvider()  # 创建 CSS 提供器，用于动态注入 GTK 样式
 
-        self.window = Gtk.Window(title="现代计算器")
-        self.window.set_default_size(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
-        self.window.set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
-        self.window.set_resizable(True)
-        self.window.connect("destroy", Gtk.main_quit)
-        self.window.connect("key-press-event", self.on_key_press)
-        self.window.connect("configure-event", self.on_window_configure)
+        self.window = Gtk.Window(title="现代计算器")  # 创建主窗口并设置标题
+        self.window.set_default_size(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)  # 设置窗口默认大小
+        self.window.set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)  # 设置窗口最小可缩放尺寸
+        self.window.set_resizable(True)  # 允许用户拖拽改变窗口大小
+        self.window.connect("destroy", Gtk.main_quit)  # 绑定关闭事件：窗口销毁时退出 GTK 主循环
+        self.window.connect("key-press-event", self.on_key_press)  # 绑定键盘事件：按键输入交给 on_key_press 处理
+        self.window.connect("configure-event", self.on_window_configure)  # 绑定窗口配置事件：用于监听尺寸变化
 
-        Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(),
-            self._css_provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-        )
+        Gtk.StyleContext.add_provider_for_screen(  # 将样式提供器注册到当前屏幕
+            Gdk.Screen.get_default(),  # 目标屏幕：默认屏幕对象
+            self._css_provider,  # 注册的样式来源：上面创建的 CSS Provider
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,  # 样式优先级：应用级，确保自定义样式生效
+        )  # 完成样式提供器注册
 
         self.main_display, self.preview_display, self.revealer = self.build_ui(self.window)
         self.apply_css()
@@ -1004,12 +1005,6 @@ class CalculatorApp:
             return True
         if name == "minus":
             self.append_token("-")
-            return True
-        if name in {"asterisk", "slash"}:
-            self.append_token("*" if name == "asterisk" else "/")
-            return True
-        if name in {"parenleft", "parenright"}:
-            self.append_token("(" if name == "parenleft" else ")")
             return True
         if name == "equal" and is_shift_pressed:
             self.append_token("+")
