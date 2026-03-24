@@ -19,39 +19,39 @@
 如果你想真正理解程序怎么跑，请按这个顺序读：
 
 1. 程序入口
-  - 先看 [simplecalculator.py 主入口](simplecalculator.py#L1042)
+  - 先看 [simplecalculator.py 主入口](simplecalculator.py#L1114)
   - 对应文档章节：4.14 与 5
 
 2. 初始化阶段（窗口、事件、UI、样式）
-  - 看 [CalculatorApp.__init__](simplecalculator.py#L71)
+  - 看 [CalculatorApp.__init__](simplecalculator.py#L94)
   - 对应文档章节：4.1
 
 3. UI 搭建阶段（控件如何长出来）
-  - 看 [build_ui](simplecalculator.py#L573)
-  - 再看 [顶部控制区](simplecalculator.py#L454)、[显示区](simplecalculator.py#L484)、[历史区](simplecalculator.py#L504)、[科学区](simplecalculator.py#L520)、[标准按键区](simplecalculator.py#L548)
+  - 看 [build_ui](simplecalculator.py#L615)
+  - 再看 [顶部控制区](simplecalculator.py#L491)、[显示区](simplecalculator.py#L522)、[历史区](simplecalculator.py#L543)、[科学区](simplecalculator.py#L560)、[标准按键区](simplecalculator.py#L589)
   - 对应文档章节：4.6
 
 4. 输入分发阶段（按钮/键盘怎么进逻辑）
-  - 按钮入口：[on_standard_input](simplecalculator.py#L610)、[on_scientific_input](simplecalculator.py#L625)
-  - 键盘入口：[on_key_press](simplecalculator.py#L964)
+  - 按钮入口：[on_standard_input](simplecalculator.py#L655)、[on_scientific_input](simplecalculator.py#L671)
+  - 键盘入口：[on_key_press](simplecalculator.py#L1038)
   - 对应文档章节：4.8、4.13
 
 5. 表达式编辑与合法性阶段
-  - 核心入口：[append_token](simplecalculator.py#L754)
-  - 配套规则：[append_operator](simplecalculator.py#L778)、[should_insert_multiply](simplecalculator.py#L789)、[can_append_decimal](simplecalculator.py#L861)、[can_append_right_parenthesis](simplecalculator.py#L805)
+  - 核心入口：[append_token](simplecalculator.py#L808)
+  - 配套规则：[append_operator](simplecalculator.py#L835)、[should_insert_multiply](simplecalculator.py#L847)、[can_append_decimal](simplecalculator.py#L925)、[can_append_right_parenthesis](simplecalculator.py#L865)
   - 对应文档章节：4.10
 
 6. 实时预览计算阶段
-  - 看 [recompute_preview](simplecalculator.py#L873)
+  - 看 [recompute_preview](simplecalculator.py#L938)
   - 对应文档章节：4.11
 
 7. 结果提交与历史阶段
-  - 看 [commit_result](simplecalculator.py#L908)
-  - 再看 [push_history](simplecalculator.py#L918)、[refresh_history_list](simplecalculator.py#L930)、[on_history_item_clicked](simplecalculator.py#L951)
+  - 看 [commit_result](simplecalculator.py#L977)
+  - 再看 [push_history](simplecalculator.py#L988)、[refresh_history_list](simplecalculator.py#L1001)、[on_history_item_clicked](simplecalculator.py#L1023)
   - 对应文档章节：4.12
 
 8. 主题/字号/响应式阶段
-  - 看 [apply_css](simplecalculator.py#L173)、[apply_theme_mode](simplecalculator.py#L409)、[on_window_configure](simplecalculator.py#L440)
+  - 看 [apply_css](simplecalculator.py#L203)、[apply_theme_mode](simplecalculator.py#L442)、[on_window_configure](simplecalculator.py#L475)
   - 对应文档章节：4.4、4.5、4.9
 
 ### 0.3 每一行代码怎么学（不死记）
@@ -393,7 +393,7 @@
   1. 获取键名 `name`、字符 `char`、Shift 状态。
   2. 回车 -> 提交；退格 -> 删除；Esc -> 清空。
   3. 小键盘映射到普通 token。
-  4. 处理不同布局下的 `plus/minus/asterisk/slash/paren`。
+  4. 处理布局差异下的键位：键名分支显式处理 `plus`、`minus`、`Shift+=`；其余如 `* / ( )` 主要走 `char` 分支。
   5. `Shift + =` 视作 `+`。
   6. 普通字符 `0123456789.+-*/()%` 直接分发；`%` 特殊处理。
   7. `^` 转成幂运算 `**`。
@@ -510,8 +510,8 @@
 - 自动提取源码函数名与常量名，对比文档中是否出现。
 
 结果：
-- 源码行数：865
-- 文档行数：365
+- 源码行数：928
+- 文档行数：493
 - 源码函数数量：56
 - 源码常量数量：28
 - 自动比对缺失函数：0

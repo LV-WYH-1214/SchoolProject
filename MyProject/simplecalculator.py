@@ -1,13 +1,13 @@
 """GTK scientific calculator with expression preview and history support."""  # 文件说明：GTK 科学计算器，支持实时预览和历史记录。
 
-import gi  # type: ignore[import-not-found]  # 导入 PyGObject（GTK 的 Python 绑定）。
-
+import gi  # type: ignore[import-not-found]  # 导入 PyGObject（GTK 的 Python 绑定）。把 C 库翻译成 Python 能用的形式
+#利用gi使用c语言库:Gdk, GLib, Gtk, Pango
 gi.require_version("Gtk", "3.0")  # 指定 GTK 主版本，避免加载错误版本。
 import logging  # 日志模块：用于记录异常细节。
 import math  # 数学函数模块：sin、cos、log、sqrt 等。
-import re  # 正则模块：用于匹配“最后一个数字”。
-from collections.abc import Callable  # 用于函数类型标注。
-
+import re  # 正则模块：用于匹配“最后一个数字”。   利用re.search从后往前找数字,配合正则表达式\d+(\.\d*)?$来匹配一个数字段,其中\d+表示整数部分至少一位,\.\d*表示可选的小数部分,整个括号表示小数部分可有可无,$表示匹配字符串末尾,确保找到的是最后一个数字。
+from collections.abc import Callable  # 用于函数类型标注.  这个标注实现的是说"我这个参数需要一个函数，这个函数务必接收 Gtk.Button，而且不能返回任何东西"
+# GTK:GUI 框架（按钮、窗口、菜单等）  GDK:底层图形层（事件、屏幕、颜色）  GLib:时间管理、事件循环   Pango:文本布局和渲染（字体、对齐、截断等）。  这些都是 GTK 应用开发的核心库，提供了构建界面和处理用户交互的基础功能。
 from gi.repository import Gdk, GLib, Gtk, Pango  # type: ignore[attr-defined]  # GTK/GDK/GLib/Pango 核心对象。
 from simpleeval import SimpleEval  # type: ignore[import-not-found]  # 安全表达式求值器（比 eval 更安全）。
 
@@ -88,7 +88,7 @@ class CalculatorState:
 
 class CalculatorApp:
     """新手：这是应用主类，负责搭界面、接收输入、计算结果、刷新显示。
-    进阶：相当于“协调器（orchestrator）”，把 UI 层、状态层、计算层串起来。
+    进阶:相当于“协调器(orchestrator)”，把 UI 层、状态层、计算层串起来。
     """  # 这是应用入口核心类。
 
     def __init__(self) -> None:  # 构造函数：创建 CalculatorApp 实例时自动执行。
@@ -114,13 +114,14 @@ class CalculatorApp:
         )
 
         self.main_display, self.preview_display, self.revealer = self.build_ui(self.window)  # 构建全部 UI 控件。
-        self.apply_css()  # 首次应用样式。
+        # 上面先调用方法，再把返回值“拆包”到3个实例属性里。
+        self.apply_css()  # 首次应用样式 。
         self.refresh_displays()  # 首次刷新显示文本。
 
-    def _create_evaluator(self) -> SimpleEval:
-        """新手：创建计算引擎，并告诉它能用哪些函数（sin/log 等）和常量（pi/e）。
+    def _create_evaluator(self) -> SimpleEval:# 这里的意思是返回一个配置好的 SimpleEval 实例，供后续计算表达式时使用。真正创建对象在138行,后续计算使用的是self.evaluator.eval(expression),952行
+        """新手:创建计算引擎,并告诉它能用哪些函数(sin/log 等)和常量(pi/e)。
         进阶：用白名单注册函数是安全策略，避免执行任意 Python 代码。
-        """  # 所有可用函数都在这里白名单注册。
+        """  # 所有可用函数都在这里白名单注册。只有白名单里面的函数和常量才能在表达式里使用，增强安全性。
 
         def to_radians(value: float) -> float:
             return math.radians(value) if self.state.use_degrees else value  # 角度制转弧度；弧度制原样返回。
@@ -135,7 +136,7 @@ class CalculatorApp:
             return math.tan(to_radians(value))  # tan 包装。
 
         evaluator = SimpleEval()  # 新建求值器。
-        evaluator.functions = {
+        evaluator.functions = { #这里是利用SimpleEval自带的函数白名单能力,告诉计算器有些什么可以使用
             "sin": sin_fn,  # 注册 sin。
             "cos": cos_fn,  # 注册 cos。
             "tan": tan_fn,  # 注册 tan。
@@ -151,7 +152,7 @@ class CalculatorApp:
         return evaluator  # 返回配置好的求值器。
 
     def _determine_size_tier(self, width: int) -> str:
-        """根据窗口宽度返回尺寸档位（小/中/大）。"""  # 用于响应式布局。
+        """根据窗口宽度返回尺寸档位（小/中/大）。"""  # 用于响应式布局。但是対大小有最小限制
         if width < 420:  # 宽度小于 420。
             return SIZE_TIER_SMALL  # 使用小档位。
         if width < 700:  # 宽度在 [420, 700) 区间。
@@ -200,19 +201,19 @@ class CalculatorApp:
         }
 
     def apply_css(self) -> None:
-        """新手：把字号、主题、间距等参数写进 CSS，然后立即应用到界面。
+        """新手：把字号、主题、间距等参数写进 CSS人,然后立即应用到界面。
         进阶：采用“状态 -> 样式字符串 -> 一次性注入”的方式，能集中管理视觉规则。
         """  # 每次主题/字号/尺寸变化都会调用。
         profile = self._get_size_profile()  # 获取当前档位尺寸参数。
-        main_size = profile["main"] + self.state.font_scale * 2  # 主显示字号：缩放影响更明显。
+        main_size = profile["main"] + self.state.font_scale * 2  # 主显示字号：缩放影响更明显。通过利用这个front_scale参数,用户可以在原有基础上微调字号,满足个性化需求,并且实现不同区域不同程度的调节功能。因为主显示通常是界面视觉焦点，所以放大效果更明显一些。
         preview_size = profile["preview"] + self.state.font_scale  # 预览字号。
         button_size = profile["button"] + self.state.font_scale  # 普通按钮字号。
         toggle_size = profile["toggle"] + self.state.font_scale  # 顶部按钮字号。
         radius = profile["radius"]  # 圆角值。
         shadow = profile["shadow"]  # 阴影级别。
         button_min_height = max(profile["topbar_min"], self.state.button_min_height)  # 最小按钮高度取两者较大值。
-
-        css = f"""
+        # 这里下面其实就是外观设计,通过使用比如button_min_height这样的变量,我们可以让界面在不同尺寸和用户偏好下都保持美观和易用。CSS 模板字符串，里面可以用 {变量} 来插入 Python 变量值。
+        css = f""" 
         window,
         grid.app-root {{
             background: #f2f2f2;
@@ -438,22 +439,22 @@ class CalculatorApp:
         self.apply_theme_mode()  # 同步深浅色类名。
         self._apply_layout_density(profile)  # 同步边距/间距等布局参数。
 
-    def apply_theme_mode(self) -> None:
-        """切换 root 和 window 的主题类名（dark-mode / light-mode）。"""  # 主题切换只改 class，不重建控件。
-        if not hasattr(self, "root_grid"):  # 防御：界面尚未构建时直接返回。
+    def apply_theme_mode(self) -> None: # 这个下面的root是根容器(root_grid),window是窗口,切换主题需要同时改两者的类名
+        """切换 root 和 window 的主题类名(dark-mode / light-mode)。"""  # 主题切换只改 class，不重建控件。
+        if not hasattr(self, "root_grid"):  # 防御：界面尚未构建时直接返回。  hasattr: python 内置函数，检查对象是否有指定属性。这里用来判断界面是否已经构建完成，因为切主题需要改样式类，如果界面还没构建好就改类会出问题，所以先检查一下 root_grid 属性是否存在，不存在就直接返回
             return
 
         window_ctx = self.window.get_style_context()  # 窗口样式上下文。
         root_ctx = self.root_grid.get_style_context()  # 根网格样式上下文。
 
-        window_ctx.remove_class("dark-mode")  # 先清掉旧主题类。
+        window_ctx.remove_class("dark-mode")  # 先清掉旧主题类。有三个目的:1.防止冲突（万一之前是 dark 模式，现在要切 light，如果不先移除 dark-mode 类，两个主题类就会共存，导致样式混乱）。2.保证结果稳定(先清空再添加目标类，最后一定只有一个主题类，切换行为每次都一致)。3.避免历史残留用户连续点多次切换时，不会越切越乱，逻辑是幂等的（每次都重置到干净状态）。
         window_ctx.remove_class("light-mode")
         root_ctx.remove_class("dark-mode")
         root_ctx.remove_class("light-mode")
 
         mode_class = "dark-mode" if self.state.dark_mode else "light-mode"  # 依据状态决定目标主题类。
         window_ctx.add_class(mode_class)  # 给窗口添加主题类。
-        root_ctx.add_class(mode_class)  # 给根网格添加主题类。
+        root_ctx.add_class(mode_class)  # 给根网格添加主题类。  网格:1.管布局(谁在第几行几列) 2.管间距(行距列距) 3.管样式范围(给网格加类，网格里所有控件都受影响)。所以切主题时给根网格加类，整个界面都能跟着变。
 
     def _apply_layout_density(self, profile: dict[str, int]) -> None:
         """把 spacing、边距、历史区高度等布局参数应用到控件。"""  # 响应式布局参数统一在这里更新。
@@ -474,9 +475,9 @@ class CalculatorApp:
     def on_window_configure(self, _widget: Gtk.Window, event: Gdk.EventConfigure) -> bool:
         """窗口尺寸变化时触发：记录目标档位并开启防抖。"""  # 避免拖拽时频繁重算样式。
         self._pending_size_tier = self._determine_size_tier(event.width)  # 根据新宽度计算待应用档位。
-        if self._resize_debounce_id is not None:  # 如果已有定时器在等。
+        if self._resize_debounce_id is not None:  # 如果已有定时器在等。   这里利用了 GLib(GTK + library).timeout_add 返回的 ID 来判断是否已有防抖定时器在等待执行，如果有就先取消它，确保在持续调整窗口大小时不会积累多个定时器，导致过多无效调用。
             GLib.source_remove(self._resize_debounce_id)  # 先取消旧定时器。
-        self._resize_debounce_id = GLib.timeout_add(RESIZE_DEBOUNCE_MS, self._on_resize_debounce)  # 启动新定时器。
+        self._resize_debounce_id = GLib.timeout_add(RESIZE_DEBOUNCE_MS, self._on_resize_debounce)  # 启动新定时器。  这句的含义:安排一个 120ms 后执行的回调任务，并把这个任务的 ID 保存到 self._resize_debounce_id 里，以便后续可能需要取消它。回调函数是 self._on_resize_debounce，这个函数会在 120ms 后被调用，来检查是否真的需要更新界面布局。
         return False  # 返回 False 让事件继续传递给 GTK 默认处理。
 
     def _on_resize_debounce(self) -> bool:
@@ -513,8 +514,8 @@ class CalculatorApp:
             elif label == "Hist":  # 保存历史按钮引用（便于后续扩展）。
                 self.history_button = button
             elif label == "HC":  # HC 单独添加一个主题类。
-                button.get_style_context().add_class("btn-theme")
-                self.contrast_button = button  # 保存引用：切主题时要改文字。
+                button.get_style_context().add_class("btn-theme") # 给这个按钮额外加了 btn-theme 样式类，让它外观和普通功能按钮有区分。
+                self.contrast_button = button  # 保存引用：切主题时要改文字。  把按钮对象保存到 self.contrast_button，后面切换主题时要改它的文字（Dark/Light）。
             elif label == "Touch":  # 保存触控按钮引用：切换时改文字。
                 self.touch_button = button
 
@@ -540,7 +541,7 @@ class CalculatorApp:
         return main_display, preview_display  # 返回两个显示控件。
 
     def _build_history_panel(self) -> None:
-        """创建历史记录面板（默认隐藏）。"""  # 使用 Revealer 实现平滑展开收起。
+        """创建历史记录面板（默认隐藏）。"""  # 使用 Revealer(可折叠容器) 实现平滑展开收起。
         self.history_revealer = Gtk.Revealer()  # 可折叠容器。
         self.history_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)  # 动画：向下滑出。
         self.history_revealer.set_transition_duration(REVEALER_TRANSITION_DURATION_MS)  # 动画时长。
@@ -762,14 +763,14 @@ class CalculatorApp:
         self.apply_css()  # 重新应用样式。
 
     def on_increase_font(self, _button: Gtk.Button) -> None:
-        """增大字号（上限 3）。"""  # A+ 按钮点击回调。
+        """增大字号(上限 3)。"""  # A+ 按钮点击回调。
         if self.state.font_scale >= 3:  # 到达上限。
             return  # 不再增加。
         self.state.font_scale += 1  # 字号缩放 +1。
         self.apply_css()  # 重新套用样式。
 
     def on_decrease_font(self, _button: Gtk.Button) -> None:
-        """减小字号（下限 -2）。"""  # A- 按钮点击回调。
+        """减小字号（下限 -2)。"""  # A- 按钮点击回调。
         if self.state.font_scale <= -2:  # 到达下限。
             return  # 不再减小。
         self.state.font_scale -= 1  # 字号缩放 -1。
@@ -791,7 +792,7 @@ class CalculatorApp:
         self.refresh_displays()  # 更新显示。
 
     def backspace(self) -> None:
-        """回删一个 token；若末尾是 **，一次删两位。"""  # 解决幂运算符删一半的问题。
+        """回删一个 token;若末尾是 **，一次删两位。"""  # 解决幂运算符删一半的问题。
         if not self.state.expression:  # 没有可删内容。
             self.state.preview = ""  # 清空预览。
             self.refresh_displays(show_zero_when_empty=False)  # 刷新显示。
@@ -884,7 +885,7 @@ class CalculatorApp:
         return None  # 没找到数字片段。
 
     def apply_percent_last_number(self) -> None:
-        """把最后一个数字转换成百分数（除以 100）。"""  # 例如 50 -> 0.5。
+        """把最后一个数字转换成百分数（除以 100)。"""  # 例如 50 -> 0.5。
         span = self.find_last_number_span()  # 找最后一个数字范围。
         if not span:  # 如果找不到数字。
             return  # 直接返回。
@@ -921,7 +922,7 @@ class CalculatorApp:
                 self.state.expression += "-"  # 允许继续输入一个负号。
                 self.refresh_displays(show_zero_when_empty=False)  # 刷新显示。
 
-    def can_append_decimal(self) -> bool:
+    def can_append_decimal(self) -> bool: # 从后往前扫描当前数字段，只在意最后的数字,确保没有重复小数点。
         """同一段数字里只允许一个小数点。"""  # 防止出现 1.2.3。
         expression = self.state.expression  # 当前表达式。
         if not expression:  # 空表达式输入小数点。
@@ -962,7 +963,7 @@ class CalculatorApp:
             LOGGER.exception("Unexpected evaluation error for expression: %s", expression)  # 打日志方便排查。
             self.state.preview = ERROR_GENERIC  # 给用户通用错误提示。
 
-    @staticmethod
+    @staticmethod # 把下面的方法声明为静态方法，因为它不依赖于实例状态。
     def is_expression_incomplete(expression: str) -> bool:
         """判断表达式是否“还没输入完”（例如以运算符结尾或括号未闭合）。"""  # 不完整则不计算。
         if not expression:  # 空串。
@@ -999,7 +1000,7 @@ class CalculatorApp:
 
     def refresh_history_list(self) -> None:
         """根据 state.history 重新渲染历史列表。"""  # 每次历史变化都重建列表行。
-        for row in self.history_list.get_children():  # 先拿到现有行。
+        for row in self.history_list.get_children():  # 先拿到现有行。  这个get_children()是GTK的方法,位于556行
             self.history_list.remove(row)  # 全部移除。
 
         for expression, result in self.state.history:  # 遍历历史数据。
@@ -1036,7 +1037,7 @@ class CalculatorApp:
 
     def on_key_press(self, _widget: Gtk.Window, event: Gdk.EventKey) -> bool:
         """新手：把键盘按键转换成和按钮点击一样的行为（回车、数字、小键盘等）。
-        进阶：通过统一走 append_token/commit_result，确保键盘与鼠标逻辑完全一致。
+        进阶：通过统一走 append_token/commit_result,确保键盘与鼠标逻辑完全一致。
         """  # 键盘输入入口。
         name = Gdk.keyval_name(event.keyval) or ""  # 获取按键名（如 KP_1、Return）。
         char = event.string or ""  # 获取字符输入（如 1、+）。
