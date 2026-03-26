@@ -1,0 +1,8 @@
+# Python 版本：3.10.20
+# 计算器项目运行依赖（源码运行）
+simpleeval>=0.9.13
+PyGObject>=3.46
+pycairo>=1.25.1
+
+# 可选：用于打包 EXE（根据项目里的 .spec 文件）
+pyinstaller>=6.0

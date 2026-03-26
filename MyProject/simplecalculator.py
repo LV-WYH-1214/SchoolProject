@@ -45,7 +45,7 @@ SIZE_TIER_LARGE = "large"  # 大窗口档位。
 ELLIPSIZE_MODE = Pango.EllipsizeMode.END  # 文本太长时，在末尾显示省略号。
 
 # 统一错误提示文本
-ERROR_DIV_ZERO = "Div0"  # 除以 0。
+ERROR_DIV_ZERO = "除零错误"  # 除以 0。
 ERROR_SYNTAX = "语法错误"  # 表达式格式不合法。
 ERROR_DOMAIN = "域错误"  # 数学定义域错误（如 sqrt(-1)）。
 ERROR_OVERFLOW = "溢出"  # 数值过大导致溢出。
