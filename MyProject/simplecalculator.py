@@ -3,6 +3,7 @@
 import gi  # type: ignore[import-not-found]  # 导入 PyGObject（GTK 的 Python 绑定）。把 C 库翻译成 Python 能用的形式
 #利用gi使用c语言库:Gdk, GLib, Gtk, Pango
 gi.require_version("Gtk", "3.0")  # 指定 GTK 主版本，避免加载错误版本。
+gi.require_version("Gdk", "3.0")  # 指定 GDK 主版本，避免版本自动选择告警。   // 作业里面没有这一行，但我觉得加上更严谨一些，明确告诉 gi 我们需要哪个版本的 GDK，避免在某些环境下 gi 自动选择了不兼容的版本导致问题。
 import logging  # 日志模块：用于记录异常细节。
 import math  # 数学函数模块：sin、cos、log、sqrt 等。
 import re  # 正则模块：用于匹配“最后一个数字”。   利用re.search从后往前找数字,配合正则表达式\d+(\.\d*)?$来匹配一个数字段,其中\d+表示整数部分至少一位,\.\d*表示可选的小数部分,整个括号表示小数部分可有可无,$表示匹配字符串末尾,确保找到的是最后一个数字。
